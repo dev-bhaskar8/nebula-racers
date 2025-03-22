@@ -1,0 +1,32 @@
+{
+  "metadata": {
+    "version": 4.5,
+    "type": "Object",
+    "generator": "Object3D.toJSON"
+  },
+  "geometries": [
+    {
+      "uuid": "asteroid-geo",
+      "type": "IcosahedronGeometry",
+      "radius": 1,
+      "detail": 0
+    }
+  ],
+  "materials": [
+    {
+      "uuid": "asteroid-mat",
+      "type": "MeshStandardMaterial",
+      "color": 16711731,
+      "roughness": 0.7,
+      "metalness": 0.3
+    }
+  ],
+  "object": {
+    "uuid": "asteroid",
+    "type": "Mesh",
+    "layers": 1,
+    "matrix": [1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1],
+    "geometry": "asteroid-geo",
+    "material": "asteroid-mat"
+  }
+} 

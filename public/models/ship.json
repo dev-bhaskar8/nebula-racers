@@ -1,0 +1,72 @@
+{
+  "metadata": {
+    "version": 4.5,
+    "type": "Object",
+    "generator": "Object3D.toJSON"
+  },
+  "geometries": [
+    {
+      "uuid": "ship-body-geo",
+      "type": "ConeGeometry",
+      "radius": 1,
+      "height": 4,
+      "radialSegments": 4,
+      "heightSegments": 1,
+      "openEnded": false,
+      "thetaStart": 0,
+      "thetaLength": 6.283185307179586
+    },
+    {
+      "uuid": "ship-engine-geo",
+      "type": "SphereGeometry",
+      "radius": 0.5,
+      "widthSegments": 8,
+      "heightSegments": 8,
+      "phiStart": 0,
+      "phiLength": 6.283185307179586,
+      "thetaStart": 0,
+      "thetaLength": 6.283185307179586
+    }
+  ],
+  "materials": [
+    {
+      "uuid": "ship-body-mat",
+      "type": "MeshPhongMaterial",
+      "color": 5177797,
+      "emissive": 5177797,
+      "emissiveIntensity": 0.2,
+      "flatShading": true
+    },
+    {
+      "uuid": "ship-engine-mat",
+      "type": "MeshBasicMaterial",
+      "color": 5177797,
+      "transparent": true,
+      "opacity": 0.7
+    }
+  ],
+  "object": {
+    "uuid": "ship",
+    "type": "Group",
+    "layers": 1,
+    "matrix": [1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1],
+    "children": [
+      {
+        "uuid": "ship-body",
+        "type": "Mesh",
+        "layers": 1,
+        "matrix": [1,0,0,0,0,0,-1,0,0,1,0,0,0,0,0,1],
+        "geometry": "ship-body-geo",
+        "material": "ship-body-mat"
+      },
+      {
+        "uuid": "ship-engine",
+        "type": "Mesh",
+        "layers": 1,
+        "matrix": [1,0,0,0,0,1,0,0,0,0,1,0,0,0,-1.5,1],
+        "geometry": "ship-engine-geo",
+        "material": "ship-engine-mat"
+      }
+    ]
+  }
+} 

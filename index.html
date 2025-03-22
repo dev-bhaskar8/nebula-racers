@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nebula Racers</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="game-container">
+        <div id="ui-overlay">
+            <div id="menu">
+                <h1>NEBULA RACERS</h1>
+                <div class="instructions">
+                    <p>CONTROLS:</p>
+                    <ul>
+                        <li><span class="control-key">UP Arrow:</span> <span class="control-action">Accelerate</span></li>
+                        <li><span class="control-key">DOWN Arrow:</span> <span class="control-action">Brake</span></li>
+                        <li><span class="control-key">LEFT/RIGHT:</span> <span class="control-action">Turn</span></li>
+                        <li><span class="control-key">SPACE:</span> <span class="control-action">Boost</span></li>
+                    </ul>
+                    <div class="game-tips">
+                        <div class="tip"><span class="tip-icon"><i class="icon-flag"></i></span> Complete all laps to win</div>
+                        <div class="tip"><span class="tip-icon"><i class="icon-boost"></i></span> Collect blue boost items</div>
+                        <div class="tip"><span class="tip-icon"><i class="icon-asteroid"></i></span> Avoid red asteroids</div>
+                    </div>
+                </div>
+                <input id="player-name" type="text" placeholder="Enter Your Name" maxlength="12">
+                
+                <div id="color-selection">
+                    <p>SELECT SHIP COLOR:</p>
+                    <div id="color-options">
+                        <div class="color-option selected" data-color="#4fd1c5" style="background-color: #4fd1c5;"></div>
+                        <div class="color-option" data-color="#f687b3" style="background-color: #f687b3;"></div>
+                        <div class="color-option" data-color="#9f7aea" style="background-color: #9f7aea;"></div>
+                        <div class="color-option" data-color="#f6e05e" style="background-color: #f6e05e;"></div>
+                        <div class="color-option" data-color="#68d391" style="background-color: #68d391;"></div>
+                    </div>
+                </div>
+                
+                <div id="lap-selection">
+                    <p>SELECT NUMBER OF LAPS:</p>
+                    <select id="lap-count">
+                        <option value="3" selected>3 Laps</option>
+                        <option value="5">5 Laps</option>
+                        <option value="10">10 Laps</option>
+                    </select>
+                </div>
+                
+                <button id="start-button">START RACE</button>
+                <div id="leaderboard">
+                    <h2>LEADERBOARD</h2>
+                    <div id="leaderboard-tabs">
+                        <div class="tab active" data-laps="3">3 Laps</div>
+                        <div class="tab" data-laps="5">5 Laps</div>
+                        <div class="tab" data-laps="10">10 Laps</div>
+                    </div>
+                    <ul id="leaderboard-list"></ul>
+                </div>
+            </div>
+            <div id="hud" class="hud hidden">
+                <div id="speed-label" class="hud-label">SPEED</div>
+                <div id="speed-value" class="hud-element">0</div>
+                
+                <div id="timer-value" class="hud-element">00:00.00</div>
+                
+                <div id="lap-counter" class="hud-element">LAP 1/3</div>
+                
+                <div id="position-label" class="hud-label">POSITION</div>
+                <div id="position-value" class="hud-element">1/8</div>
+                
+                <div id="boost-label" class="hud-label">BOOST</div>
+                <div id="boost-meter" class="hud-element">
+                    <div id="boost-meter-fill"></div>
+                </div>
+            </div>
+            <div id="finish-screen" class="hidden">
+                <h2>Race Complete!</h2>
+                <div id="final-time">TIME: 00:00.00</div>
+                <div id="final-position">POSITION: 1/8</div>
+                <div id="final-laps">LAPS: 3</div>
+                <button id="restart-button">Race Again</button>
+            </div>
+        </div>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/socket.io-client@4.4.1/dist/socket.io.min.js"></script>
+    <script src="script.js"></script>
+</body>
+</html> 
