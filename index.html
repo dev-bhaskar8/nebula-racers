@@ -34,7 +34,9 @@
                         <div class="color-option" data-color="#f687b3" style="background-color: #f687b3;"></div>
                         <div class="color-option" data-color="#9f7aea" style="background-color: #9f7aea;"></div>
                         <div class="color-option" data-color="#f6e05e" style="background-color: #f6e05e;"></div>
-                        <div class="color-option" data-color="#68d391" style="background-color: #68d391;"></div>
+                        <div class="color-option gradient-picker">
+                            <input type="color" id="custom-color" value="#68d391" class="color-picker">
+                        </div>
                     </div>
                 </div>
                 
@@ -82,6 +84,22 @@
                 <button id="restart-button">Race Again</button>
             </div>
         </div>
+        
+        <!-- New bottom right corner controls container -->
+        <div id="corner-controls">
+            <div id="multiplayer-selection">
+                <div class="multiplayer-title">Multiplayer Mode</div>
+                <div class="toggle-container">
+                    <span class="toggle-label">Off</span>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="multiplayer-toggle">
+                        <span class="toggle-slider"></span>
+                    </label>
+                    <span class="toggle-label">On</span>
+                </div>
+            </div>
+        </div>
+        <div id="connection-status">Singleplayer Mode</div>
     </div>
     <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/build/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/controls/OrbitControls.js"></script>

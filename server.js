@@ -3,6 +3,9 @@ const path = require('path');
 const fs = require('fs');
 const app = express();
 const PORT = process.env.PORT || 3000;
+const http = require('http');
+const server = http.createServer(app);
+const io = require('socket.io')(server);
 
 // Add JSON middleware
 app.use(express.json());
@@ -23,6 +26,91 @@ if (!fs.existsSync(leaderboardFilePath)) {
     fs.writeFileSync(leaderboardFilePath, JSON.stringify(initialData, null, 2));
     console.log('Created initial leaderboard file');
 }
+
+// Store connected players
+const players = {};
+
+// Socket.IO connection handling
+io.on('connection', (socket) => {
+    console.log(`New connection: ${socket.id}`);
+    
+    // Handle player joining
+    socket.on('playerJoin', (data) => {
+        console.log(`Player joined: ${data.name} (${socket.id})`);
+        players[socket.id] = {
+            id: socket.id,
+            name: data.name,
+            position: data.position || { x: 0, y: 0, z: 0 },
+            rotation: data.rotation || { x: 0, y: 0, z: 0 },
+            shipColor: data.shipColor || '#4fd1c5',
+            lap: 0,
+            progress: 0,
+            racing: false
+        };
+        
+        // Inform other players about the new player
+        socket.broadcast.emit('playerJoined', players[socket.id]);
+        
+        // Send existing players to the new player
+        socket.emit('existingPlayers', players);
+        
+        // Reset all players to starting line if at least one player is racing
+        let anyoneRacing = false;
+        Object.values(players).forEach(player => {
+            if (player.racing) {
+                anyoneRacing = true;
+            }
+        });
+        
+        if (anyoneRacing) {
+            console.log('New player joined, resetting race for all players');
+            io.emit('resetRace');
+        }
+    });
+    
+    // Handle player position updates
+    socket.on('playerUpdate', (data) => {
+        if (players[socket.id]) {
+            players[socket.id].position = data.position;
+            players[socket.id].rotation = data.rotation;
+            players[socket.id].lap = data.lap;
+            players[socket.id].progress = data.progress;
+            players[socket.id].racing = data.racing;
+            
+            // Broadcast updated position to other players
+            socket.broadcast.emit('playerMoved', {
+                id: socket.id,
+                position: data.position,
+                rotation: data.rotation,
+                lap: data.lap,
+                progress: data.progress,
+                racing: data.racing
+            });
+        }
+    });
+    
+    // Handle race reset broadcast
+    socket.on('broadcastReset', (data) => {
+        console.log(`Race reset broadcast from ${socket.id}`);
+        
+        // Broadcast reset to all clients including sender (for confirmation)
+        io.emit('raceReset', {
+            initiator: socket.id,
+            timestamp: data.timestamp
+        });
+    });
+    
+    // Handle player disconnection
+    socket.on('disconnect', () => {
+        console.log(`Player disconnected: ${socket.id}`);
+        // Remove player from list
+        if (players[socket.id]) {
+            delete players[socket.id];
+            // Notify other players about disconnection
+            socket.broadcast.emit('playerLeft', socket.id);
+        }
+    });
+});
 
 // API endpoint to get leaderboard data
 app.get('/api/leaderboard/:lapCount', (req, res) => {
@@ -100,7 +188,7 @@ app.get('/', (req, res) => {
 });
 
 // Start server
-app.listen(PORT, () => {
+server.listen(PORT, () => {
     console.log(`Nebula Racers server running on port ${PORT}`);
     console.log(`Open http://localhost:${PORT} to play the game`);
 }); 

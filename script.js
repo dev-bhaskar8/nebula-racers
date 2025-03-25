@@ -38,7 +38,15 @@ let game = {
     trackProgress: 0,
     lastCheckpoint: 0,
     playerLane: null,
-    shipColor: '#4fd1c5' // Default ship color
+    shipColor: '#4fd1c5', // Default ship color
+    multiplayer: false, // Multiplayer mode flag
+    multiplayerPlayers: {}, // Store for multiplayer players
+    isConnected: false, // Socket connection status
+    connectionState: 'disconnected', // Connection state: 'disconnected', 'connecting', 'connected'
+    inCountdown: false, // Flag to track if the game is in countdown
+    pendingPlayerJoins: [], // Track players who tried to join during countdown
+    checkpointsPassed: {}, // Track which checkpoints have been passed for the current lap
+    requiredProgressForLap: true // Flag to enforce full track progress for a lap
 };
 
 // DOM elements
@@ -59,6 +67,7 @@ const boostMeterFillEl = document.getElementById('boost-meter-fill');
 const lapCountSelect = document.getElementById('lap-count');
 const lapCounterEl = document.getElementById('lap-counter');
 const leaderboardTabs = document.querySelectorAll('.tab');
+const multiplayerToggle = document.getElementById('multiplayer-toggle');
 
 // Controls state
 const keys = {
@@ -98,31 +107,40 @@ function init() {
     directionalLight.shadow.mapSize.width = 1024;
     directionalLight.shadow.mapSize.height = 1024;
     directionalLight.shadow.camera.near = 10;
-    directionalLight.shadow.camera.far = 200;
-    directionalLight.shadow.camera.left = -50;
-    directionalLight.shadow.camera.right = 50;
-    directionalLight.shadow.camera.top = 50;
-    directionalLight.shadow.camera.bottom = -50;
+    directionalLight.shadow.camera.far = 1000;
+    directionalLight.shadow.camera.left = -100;
+    directionalLight.shadow.camera.right = 100;
+    directionalLight.shadow.camera.top = 100;
+    directionalLight.shadow.camera.bottom = -100;
     game.scene.add(directionalLight);
     
-    // Add stars background
+    // Create star background
     createStarBackground();
     
-    // Setup leaderboard tabs
+    // Set up leaderboard tabs
     setupLeaderboardTabs();
-    
-    // Load leaderboard from localStorage
-    loadLeaderboard();
     
     // Set up color selection
     setupColorSelection();
     
-    // Add event listeners
+    // Load leaderboard on startup
+    loadLeaderboard(3);
+    
+    // Initialize the connection status display
+    updateConnectionStatus();
+    
+    // Attach event listeners
     window.addEventListener('resize', onWindowResize);
     document.addEventListener('keydown', handleKeyDown);
     document.addEventListener('keyup', handleKeyUp);
     startButton.addEventListener('click', startRace);
     restartButton.addEventListener('click', restartRace);
+    
+    // Add event listener for multiplayer toggle
+    multiplayerToggle.addEventListener('change', function() {
+        game.multiplayer = this.checked;
+        updateConnectionStatus();
+    });
     
     // Start animation loop
     animate();
@@ -148,6 +166,7 @@ function setupLeaderboardTabs() {
 // Setup color selection functionality
 function setupColorSelection() {
     const colorOptions = document.querySelectorAll('.color-option');
+    const customColorInput = document.getElementById('custom-color');
     
     colorOptions.forEach(option => {
         option.addEventListener('click', () => {
@@ -157,12 +176,34 @@ function setupColorSelection() {
             // Add selected class to clicked option
             option.classList.add('selected');
             
-            // Store the selected color
-            game.shipColor = option.dataset.color;
+            // Get color from data attribute or color picker
+            if (option.classList.contains('gradient-picker')) {
+                game.shipColor = customColorInput.value;
+            } else {
+                game.shipColor = option.dataset.color;
+            }
             
             // Update the start button color to match selection
             startButton.style.backgroundColor = game.shipColor;
         });
+    });
+    
+    // Handle color picker changes
+    customColorInput.addEventListener('input', (e) => {
+        // Update the selected color
+        game.shipColor = e.target.value;
+        
+        // Update selected state
+        colorOptions.forEach(o => o.classList.remove('selected'));
+        customColorInput.closest('.color-option').classList.add('selected');
+        
+        // Update the start button color
+        startButton.style.backgroundColor = game.shipColor;
+    });
+    
+    // Handle color picker click
+    customColorInput.addEventListener('click', (e) => {
+        e.stopPropagation();
     });
 }
 
@@ -549,9 +590,15 @@ function startRace() {
     game.startTime = Date.now();
     game.lap = 0; // Reset lap counter
     
+    // Update connection status for in-race display
+    updateConnectionStatus();
+    
     // Hide menu, show HUD
     menuEl.classList.add('hidden');
     hudEl.classList.remove('hidden');
+    
+    // Hide multiplayer toggle during race, but keep connection status visible
+    document.getElementById('multiplayer-selection').classList.add('hidden');
     
     // Setup game elements
     createShip();
@@ -564,7 +611,11 @@ function startRace() {
     startCountdown();
     
     // Connect to server if multiplayer is enabled
-    // For simplicity, we'll just simulate other players
+    if (game.multiplayer && !game.socket) {
+        setupMultiplayer();
+    }
+    
+    // Always simulate AI players (even in multiplayer mode)
     simulateOtherPlayers();
 }
 
@@ -573,11 +624,14 @@ function positionShipAtStart() {
     // Calculate lane width within the track
     const laneWidth = game.trackWidth / 8; // 8 total racers (7 AI + player)
     
-    // Place player in lane 4 (middle lane)
-    const playerLane = 4;
+    // Randomly place player in any lane (1-8)
+    const playerLane = Math.floor(Math.random() * 8) + 1;
     
     // Calculate radial offset for player's lane (from center of track)
-    const radialOffset = -game.trackWidth/2 + (playerLane * laneWidth) + (laneWidth/2);
+    // Adjust calculation to ensure player starts within track boundaries
+    // Lane 1 is inner edge, Lane 8 is outer edge
+    const innerRadius = game.track.radius - game.trackWidth / 2; // Inner track edge
+    const radialOffset = innerRadius + (playerLane - 0.5) * laneWidth;
     
     // Get the start position (point 0 on the track curve)
     const startPoint = game.track.curve.getPoint(0);
@@ -585,15 +639,15 @@ function positionShipAtStart() {
     // Get the tangent at the starting point
     const tangent = game.track.curve.getTangent(0);
     
-    // Calculate normal vector (perpendicular to tangent)
-    const normal = new THREE.Vector2(-tangent.y, tangent.x).normalize();
-    
-    // Apply radial offset in the normal direction
-    const offsetX = normal.x * radialOffset;
-    const offsetZ = normal.y * radialOffset;
+    // Calculate direction vector from center to start point (for proper radial positioning)
+    const centerToEdge = new THREE.Vector2(startPoint.x, startPoint.y).normalize();
     
     // Position ship at start line with lane offset
-    game.ship.position.set(startPoint.x + offsetX, 1, startPoint.y + offsetZ);
+    game.ship.position.set(
+        centerToEdge.x * radialOffset, 
+        1, 
+        centerToEdge.y * radialOffset
+    );
     
     // Set rotation to face the tangent direction
     const angle = Math.atan2(tangent.y, tangent.x);
@@ -610,6 +664,14 @@ function positionShipAtStart() {
     game.trackProgress = 0;
     game.lastCheckpoint = 0;
     
+    // Reset checkpoint tracking system
+    game.checkpointsPassed = {}; 
+    
+    // Initialize checkpoints for first lap
+    const checkpointCount = 8;
+    game.checkpointsPassed[0] = new Array(checkpointCount).fill(false);
+    game.checkpointsPassed[0][0] = true; // Mark starting checkpoint as passed
+    
     // Store player's lane
     game.playerLane = playerLane;
     
@@ -617,11 +679,6 @@ function positionShipAtStart() {
     const cameraOffset = new THREE.Vector3(0, game.cameraOffset.y, game.cameraOffset.z);
     cameraOffset.applyQuaternion(game.ship.quaternion);
     game.camera.position.copy(game.ship.position.clone().add(cameraOffset));
-    
-    // Look at point slightly ahead of ship
-    const lookAhead = new THREE.Vector3(0, 0.5, 5);
-    lookAhead.applyQuaternion(game.ship.quaternion);
-    game.camera.lookAt(game.ship.position.clone().add(lookAhead));
 }
 
 // Start countdown before race begins
@@ -635,6 +692,8 @@ function startCountdown() {
     
     // Disable controls during countdown
     game.racing = false;
+    // Set countdown flag
+    game.inCountdown = true;
     
     // Hide all HUD elements during countdown
     const hudElements = hudEl.querySelectorAll('.hud-element, .hud-label');
@@ -664,9 +723,21 @@ function startCountdown() {
                 el.style.visibility = 'visible';
             });
             
-            // Start the race
+            // Start the race and reset the timer
             game.racing = true;
-            game.startTime = Date.now();
+            game.startTime = Date.now(); // Crucial: reset the start time right when race begins
+            game.elapsedTime = 0;
+            timerValueEl.textContent = formatTime(0);
+            
+            // Clear countdown flag
+            game.inCountdown = false;
+            
+            // Process any pending player joins that occurred during countdown
+            if (game.pendingPlayerJoins.length > 0 && game.multiplayer && game.isConnected) {
+                showNotification('New player(s) joined! Race reset.');
+                resetRaceToStart();
+                game.pendingPlayerJoins = []; // Clear pending joins
+            }
         }
     }, 1000);
 }
@@ -677,6 +748,20 @@ function simulateOtherPlayers() {
     
     // Calculate lane width within the track
     const laneWidth = game.trackWidth / 8; // 8 total racers (7 AI + player)
+    
+    // Create an array of all available lanes (1-8)
+    const availableLanes = [1, 2, 3, 4, 5, 6, 7, 8];
+    
+    // Custom AI names
+    const aiNames = ["Celestial1", "Nova2", "Voyager3", "Orion4", "Galileo5", "Aether6", "Cosmos7"];
+    
+    // Remove player's lane from available lanes to avoid spawning AI there
+    if (game.playerLane) {
+        const playerLaneIndex = availableLanes.indexOf(game.playerLane);
+        if (playerLaneIndex !== -1) {
+            availableLanes.splice(playerLaneIndex, 1);
+        }
+    }
     
     for (let i = 0; i < playerCount; i++) {
         const id = 'ai-' + i;
@@ -696,41 +781,50 @@ function simulateOtherPlayers() {
         ship.rotation.x = Math.PI / 2;
         shipGroup.add(ship);
         
+        // Create name sprite for AI
+        const aiName = aiNames[i];
+        const nameSprite = createPlayerNameSprite(aiName, '#' + shipColor.toString(16).padStart(6, '0'));
+        nameSprite.position.set(0, 3, 0); // Position higher above the ship (changed from 2 to 3)
+        shipGroup.add(nameSprite);
+        
         // All racers start at progress 0 (starting line)
         const startProgress = 0;
         
-        // Calculate lane offset from center of track
-        // Place player in middle lane (lane 4), AI ships in other lanes
-        // Stagger AI ships in lanes to avoid collisions
-        const laneIndex = (i < 3) ? i + 1 : i + 2; // Skip lane 4 (reserved for player)
+        // Randomly select a lane from available lanes
+        const randomIndex = Math.floor(Math.random() * availableLanes.length);
+        const laneIndex = availableLanes[randomIndex];
         
-        // Calculate radial offset for this lane
-        // Mapping lanes from inner to outer track: track center is at radius
-        // Lanes are positioned from inner edge to outer edge
-        const radialOffset = -game.trackWidth/2 + (laneIndex * laneWidth) + (laneWidth/2);
+        // Remove this lane from available lanes to avoid duplicates
+        availableLanes.splice(randomIndex, 1);
+        
+        // If we've run out of available lanes, just use a random one (unlikely since we only have 7 AI)
+        if (availableLanes.length === 0) {
+            // Exclude player lane if possible
+            const excludePlayerLane = (laneIndex) => laneIndex !== game.playerLane;
+            const possibleLanes = [1, 2, 3, 4, 5, 6, 7, 8].filter(excludePlayerLane);
+            availableLanes.push(...possibleLanes);
+        }
+        
+        // Calculate proper radial offset to ensure AI ships stay on track
+        const innerRadius = game.track.radius - game.trackWidth / 2; // Inner track edge
+        const radialOffset = innerRadius + (laneIndex - 0.5) * laneWidth;
         
         // Get the point on the center of the track
         const startPoint = game.track.curve.getPoint(startProgress);
         
-        // Calculate angle at starting point
-        const tangent = game.track.curve.getTangent(startProgress);
-        const angle = Math.atan2(tangent.y, tangent.x);
+        // Calculate direction vector from center to start point
+        const centerToEdge = new THREE.Vector2(startPoint.x, startPoint.y).normalize();
         
-        // Calculate normal vector (perpendicular to tangent)
-        const normal = new THREE.Vector2(-tangent.y, tangent.x).normalize();
-        
-        // Apply radial offset in the normal direction
-        const offsetX = normal.x * radialOffset;
-        const offsetZ = normal.y * radialOffset;
-        
-        // Set position with offset
+        // Set position with proper radial offset
         shipGroup.position.set(
-            startPoint.x + offsetX, 
+            centerToEdge.x * radialOffset, 
             1, 
-            startPoint.y + offsetZ
+            centerToEdge.y * radialOffset
         );
         
         // Get the tangent to set the starting direction
+        const tangent = game.track.curve.getTangent(startProgress);
+        
         // Make direction vector positive to face forward along track
         const direction = new THREE.Vector3(tangent.x, 0, tangent.y);
         direction.normalize();
@@ -762,7 +856,7 @@ function simulateOtherPlayers() {
         const baseSpeed = (0.4 + (i * 0.05)) * 1.25;
         game.players[id] = {
             mesh: shipGroup,
-            name: 'Racer ' + (i + 1),
+            name: aiNames[i],
             progress: startProgress,
             speed: baseSpeed,
             lap: 0,
@@ -836,6 +930,9 @@ function restartRace() {
     game.speed = 0;
     game.boostAmount = 0;
     
+    // Update connection status for menu display
+    updateConnectionStatus();
+    
     // Remove existing game objects
     if (game.ship) {
         game.scene.remove(game.ship);
@@ -868,9 +965,10 @@ function restartRace() {
     game.camera.position.set(0, 10, -15);
     game.camera.lookAt(0, 0, 0);
     
-    // Hide finish screen, show menu
+    // Hide finish screen, show menu and multiplayer toggle
     finishScreenEl.classList.add('hidden');
     menuEl.classList.remove('hidden');
+    document.getElementById('multiplayer-selection').classList.remove('hidden');
 }
 
 // Handle key down events
@@ -1487,6 +1585,14 @@ function checkLapCompletion() {
     // Determine current checkpoint
     const currentCheckpoint = Math.floor(closestPoint / checkpointSize);
     
+    // Initialize checkpointsPassed for current lap if it doesn't exist
+    if (!game.checkpointsPassed[game.lap]) {
+        game.checkpointsPassed[game.lap] = new Array(checkpointCount).fill(false);
+    }
+    
+    // Mark the current checkpoint as passed
+    game.checkpointsPassed[game.lap][currentCheckpoint] = true;
+    
     // Check if we've crossed the start/finish line
     if (currentCheckpoint === 0 && game.lastCheckpoint === checkpointCount - 1) {
         // Verify the ship is moving forward
@@ -1494,9 +1600,19 @@ function checkLapCompletion() {
         forwardDir.applyQuaternion(game.ship.quaternion);
         const movement = game.velocity.dot(forwardDir);
         
-        if (movement > 0) {
-            // Completed a lap
+        // Check if player has actually completed a full circuit
+        const hasCompletedFullCircuit = !game.requiredProgressForLap || 
+                                       checkAllCheckpointsPassed(game.lap);
+        
+        if (movement > 0 && hasCompletedFullCircuit) {
+            // Completed a valid lap
             game.lap++;
+            
+            // Reset checkpoint tracking for the new lap
+            game.checkpointsPassed[game.lap] = new Array(checkpointCount).fill(false);
+            
+            // Mark the starting checkpoint as passed for the new lap
+            game.checkpointsPassed[game.lap][0] = true;
             
             // Play lap completion effect
             console.log("Lap completed: " + game.lap + "/" + game.totalLaps);
@@ -1506,6 +1622,8 @@ function checkLapCompletion() {
                 finishRace();
                 return;
             }
+        } else if (movement > 0 && !hasCompletedFullCircuit) {
+            console.log("Attempted lap completion rejected - full circuit not completed");
         }
     }
     
@@ -1515,6 +1633,15 @@ function checkLapCompletion() {
     }
 }
 
+// Helper function to check if all checkpoints in a lap have been passed
+function checkAllCheckpointsPassed(lapNumber) {
+    if (!game.checkpointsPassed[lapNumber]) {
+        return false;
+    }
+    
+    return game.checkpointsPassed[lapNumber].every(passed => passed);
+}
+
 // Update HUD elements
 function updateHUD() {
     if (!game.racing) return;
@@ -1522,8 +1649,9 @@ function updateHUD() {
     // Update speed display
     speedValueEl.textContent = Math.round(game.speed * 100);
     
-    // Update timer
-    game.elapsedTime = Date.now() - game.startTime;
+    // Update timer - calculate from startTime
+    const currentTime = Date.now();
+    game.elapsedTime = currentTime - game.startTime;
     timerValueEl.textContent = formatTime(game.elapsedTime);
     
     // Update lap counter
@@ -1531,13 +1659,53 @@ function updateHUD() {
     
     // Update position counter
     updatePositionCounter();
+    
+    // Debug: Show checkpoint progress (uncomment for debugging)
+    // updateCheckpointDebug();
+}
+
+// Debug function to visualize checkpoint tracking
+function updateCheckpointDebug() {
+    if (!game.checkpointsPassed[game.lap]) return;
+    
+    // Create or get debug element
+    let debugEl = document.getElementById('checkpoint-debug');
+    
+    if (!debugEl) {
+        debugEl = document.createElement('div');
+        debugEl.id = 'checkpoint-debug';
+        debugEl.style.position = 'fixed';
+        debugEl.style.bottom = '10px';
+        debugEl.style.left = '10px';
+        debugEl.style.backgroundColor = 'rgba(0,0,0,0.7)';
+        debugEl.style.color = '#4fd1c5';
+        debugEl.style.padding = '5px';
+        debugEl.style.borderRadius = '3px';
+        debugEl.style.fontFamily = 'monospace';
+        debugEl.style.fontSize = '12px';
+        document.body.appendChild(debugEl);
+    }
+    
+    // Create checkpoint visualization
+    let checkpointStr = `Lap ${game.lap+1} Progress: ${Math.round(game.trackProgress * 100)}%\n`;
+    checkpointStr += 'Checkpoints: ';
+    
+    for (let i = 0; i < game.checkpointsPassed[game.lap].length; i++) {
+        if (game.checkpointsPassed[game.lap][i]) {
+            checkpointStr += '✓ ';
+        } else {
+            checkpointStr += '✗ ';
+        }
+    }
+    
+    debugEl.textContent = checkpointStr;
 }
 
 // Calculate and update the player's position in the race
 function updatePositionCounter() {
     if (!game.ship) return;
     
-    // Create an array of all racers (player + AI)
+    // Create an array of all racers (player + AI + multiplayer players)
     const racers = [];
     
     // Add player
@@ -1557,6 +1725,20 @@ function updatePositionCounter() {
             progress: player.progress,
             isPlayer: false
         });
+    }
+    
+    // Add multiplayer players
+    if (game.multiplayer) {
+        for (const id in game.multiplayerPlayers) {
+            const player = game.multiplayerPlayers[id];
+            racers.push({
+                name: player.name,
+                lap: player.lap,
+                progress: player.progress,
+                isPlayer: false,
+                isMultiplayer: true
+            });
+        }
     }
     
     // Sort racers by position (lap first, then progress)
@@ -1601,42 +1783,53 @@ function formatTime(ms) {
     return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}.${milliseconds.toString().padStart(2, '0')}`;
 }
 
-// Finish the race
+// Handle race completion
 function finishRace() {
     game.racing = false;
+    
+    // Update connection status
+    updateConnectionStatus();
+    
+    // Check if we're already showing the finish screen (prevent double triggers)
+    if (!finishScreenEl.classList.contains('hidden')) return;
+    
+    // Calculate final stats
+    const finalTime = game.elapsedTime;
+    const finalPosition = game.currentPosition;
     
     // Show finish screen
     finishScreenEl.classList.remove('hidden');
     hudEl.classList.add('hidden');
     
-    // Calculate final position one last time
-    updatePositionCounter();
+    // Set finish screen values
+    finalTimeEl.textContent = `TIME: ${formatTime(finalTime)}`;
+    finalPositionEl.textContent = `POSITION: ${finalPosition}/8`;
     
-    // Display final time
-    finalTimeEl.textContent = 'TIME: ' + formatTime(game.elapsedTime);
-    
-    // Display final position
-    finalPositionEl.textContent = 'POSITION: ' + game.currentPosition + '/8';
-    
-    // Update the finish screen to show lap count
-    const finalLapsEl = document.getElementById('final-laps') || createFinalLapsElement();
-    finalLapsEl.textContent = 'LAPS: ' + game.totalLaps;
+    // Add lap information 
+    createFinalLapsElement();
     
     // Save to leaderboard
     saveToLeaderboard();
 }
 
-// Create the final laps element if it doesn't exist
+// Create or update the final laps element
 function createFinalLapsElement() {
-    const finalLapsEl = document.createElement('div');
-    finalLapsEl.id = 'final-laps';
-    finalLapsEl.style.margin = '10px 0';
-    finalLapsEl.style.fontSize = '1.2rem';
+    const finalLapsEl = document.getElementById('final-laps');
+    if (finalLapsEl) {
+        finalLapsEl.textContent = `LAPS: ${game.totalLaps}`;
+        return finalLapsEl;
+    }
+    
+    // If element doesn't exist, create it
+    const newFinalLapsEl = document.createElement('div');
+    newFinalLapsEl.id = 'final-laps';
+    newFinalLapsEl.textContent = `LAPS: ${game.totalLaps}`;
+    newFinalLapsEl.style.margin = '10px 0';
+    newFinalLapsEl.style.fontSize = '1.2rem';
     
     // Insert after final position
-    finalPositionEl.parentNode.insertBefore(finalLapsEl, finalPositionEl.nextSibling);
-    
-    return finalLapsEl;
+    finalPositionEl.parentNode.insertBefore(newFinalLapsEl, finalPositionEl.nextSibling);
+    return newFinalLapsEl;
 }
 
 // Save race result to leaderboard with lap count
@@ -1824,6 +2017,25 @@ function animate() {
     // Update boost particles
     updateBoostParticles();
     
+    // Send player position updates in multiplayer mode
+    if (game.multiplayer && game.isConnected && game.ship) {
+        game.socket.emit('playerUpdate', {
+            position: {
+                x: game.ship.position.x,
+                y: game.ship.position.y,
+                z: game.ship.position.z
+            },
+            rotation: {
+                x: game.ship.rotation.x,
+                y: game.ship.rotation.y,
+                z: game.ship.rotation.z
+            },
+            lap: game.lap,
+            progress: game.trackProgress,
+            racing: game.racing
+        });
+    }
+    
     // Render scene
     game.renderer.render(game.scene, game.camera);
 }
@@ -1976,6 +2188,447 @@ function updateBoostParticles() {
             }
         }
     }
+}
+
+// Update connection status display
+function updateConnectionStatus() {
+    const statusEl = document.getElementById('connection-status');
+    if (!statusEl) return;
+    
+    if (!game.multiplayer) {
+        statusEl.textContent = 'Singleplayer Mode';
+        statusEl.className = '';
+        return;
+    }
+    
+    switch (game.connectionState) {
+        case 'connected':
+            statusEl.textContent = 'Connected to Server';
+            statusEl.className = 'status-connected';
+            break;
+        case 'connecting':
+            statusEl.textContent = 'Connecting...';
+            statusEl.className = 'status-connecting';
+            break;
+        case 'disconnected':
+            // Show different message based on whether in race or menu
+            if (game.racing) {
+                statusEl.textContent = 'Disconnected from Server';
+                statusEl.className = 'status-disconnected';
+            } else {
+                statusEl.textContent = 'Ready for Multiplayer';
+                statusEl.className = 'status-ready';
+            }
+            break;
+    }
+}
+
+// Setup multiplayer connection
+function setupMultiplayer() {
+    try {
+        game.connectionState = 'connecting';
+        updateConnectionStatus();
+        
+        // Connect to socket.io server
+        game.socket = io();
+        
+        // Connection event
+        game.socket.on('connect', () => {
+            console.log('Connected to server');
+            game.id = game.socket.id;
+            game.isConnected = true;
+            game.connectionState = 'connected';
+            updateConnectionStatus();
+            
+            // Send player data to server
+            game.socket.emit('playerJoin', {
+                name: game.playerName,
+                position: {
+                    x: game.ship.position.x,
+                    y: game.ship.position.y,
+                    z: game.ship.position.z
+                },
+                rotation: {
+                    x: game.ship.rotation.x,
+                    y: game.ship.rotation.y,
+                    z: game.ship.rotation.z
+                },
+                shipColor: game.shipColor
+            });
+        });
+        
+        // Handle existing players
+        game.socket.on('existingPlayers', (players) => {
+            Object.keys(players).forEach(id => {
+                if (id !== game.socket.id) {
+                    addMultiplayerPlayer(id, players[id]);
+                }
+            });
+        });
+        
+        // Handle new player joining
+        game.socket.on('playerJoined', (player) => {
+            // If we're in countdown, add to pending joins instead
+            if (game.inCountdown) {
+                // Store the player to add them after countdown
+                if (!game.pendingPlayerJoins.some(p => p.id === player.id)) {
+                    game.pendingPlayerJoins.push(player);
+                    console.log(`Player ${player.id} join queued until after countdown`);
+                }
+            } else {
+                // Add player normally if not in countdown
+                addMultiplayerPlayer(player.id, player);
+                
+                // Only trigger reset if racing has already started
+                if (game.racing) {
+                    // Show notification
+                    showNotification('New player joined! Race reset.');
+                    // Reset race to starting line
+                    resetRaceToStart();
+                }
+            }
+        });
+        
+        // Handle player movement updates
+        game.socket.on('playerMoved', (data) => {
+            updateMultiplayerPlayer(data);
+        });
+        
+        // Handle player disconnection
+        game.socket.on('playerLeft', (id) => {
+            removeMultiplayerPlayer(id);
+        });
+        
+        // Handle race reset (from any player)
+        game.socket.on('raceReset', (data) => {
+            console.log(`Received race reset from ${data.initiator}`);
+            
+            // Don't process our own resets
+            if (data.initiator === game.socket.id) {
+                console.log('Ignoring own reset broadcast');
+                return;
+            }
+            
+            // Show notification
+            showNotification('Race reset by another player!');
+            
+            // Only handle resets if we're in the game (not menu)
+            if (game.ship) {
+                // Handle race reset
+                console.log('Resetting race in response to server event');
+                
+                // Stop current countdown if active
+                if (game.inCountdown) {
+                    // Find and remove countdown overlay
+                    const overlay = document.querySelector('.countdown-overlay');
+                    if (overlay) overlay.remove();
+                }
+                
+                // Reset racing state
+                game.racing = false;
+                game.inCountdown = false;
+                
+                // Call reset function but without emitting another reset
+                // This prevents infinite reset loops
+                resetLocalRaceToStart();
+            }
+        });
+        
+        // Handle disconnection
+        game.socket.on('disconnect', () => {
+            console.log('Disconnected from server');
+            game.isConnected = false;
+            game.connectionState = 'disconnected';
+            updateConnectionStatus();
+            
+            // Remove all multiplayer players
+            Object.keys(game.multiplayerPlayers).forEach(id => {
+                removeMultiplayerPlayer(id);
+            });
+        });
+    } catch (error) {
+        console.error('Failed to connect to server:', error);
+        game.connectionState = 'disconnected';
+        updateConnectionStatus();
+    }
+}
+
+// Reset race to starting line for all players
+function resetRaceToStart() {
+    // Stop racing
+    game.racing = false;
+    
+    // If in the finish screen, go back to the game
+    finishScreenEl.classList.add('hidden');
+    hudEl.classList.remove('hidden');
+    
+    // Reset timing
+    game.lap = 0;
+    game.elapsedTime = 0;
+    game.startTime = Date.now(); // Ensure this is set to current time
+    
+    // Reset timer display immediately
+    timerValueEl.textContent = formatTime(0);
+    
+    // Update HUD
+    updateHUD();
+    
+    // Position ship at starting line
+    positionShipAtStart();
+    
+    // Clear boosts
+    game.boostAmount = 100;
+    updateBoostMeter();
+    
+    // Add any pending players before starting new countdown
+    if (game.multiplayer && game.pendingPlayerJoins.length > 0) {
+        game.pendingPlayerJoins.forEach(player => {
+            addMultiplayerPlayer(player.id, player);
+        });
+        game.pendingPlayerJoins = []; // Clear the pending joins
+    }
+    
+    // Emit a reset event to synchronize all players if in multiplayer
+    if (game.multiplayer && game.isConnected && game.socket) {
+        console.log('Broadcasting race reset to all players');
+        game.socket.emit('broadcastReset', {
+            initiator: game.id,
+            timestamp: Date.now()
+        });
+    }
+    
+    // Start countdown
+    startCountdown();
+}
+
+// Show notification message
+function showNotification(message) {
+    // Create notification element if it doesn't exist
+    let notificationEl = document.getElementById('notification');
+    
+    if (!notificationEl) {
+        notificationEl = document.createElement('div');
+        notificationEl.id = 'notification';
+        document.body.appendChild(notificationEl);
+    }
+    
+    // Set message
+    notificationEl.textContent = message;
+    notificationEl.classList.add('show');
+    
+    // Remove after 3 seconds
+    setTimeout(() => {
+        notificationEl.classList.remove('show');
+    }, 3000);
+}
+
+// Add a multiplayer player to the scene
+function addMultiplayerPlayer(id, playerData) {
+    if (game.multiplayerPlayers[id]) return;
+    
+    // Create player ship as a group for better control
+    const playerShip = new THREE.Group();
+    
+    // Use cone geometry to match player and AI ships
+    const shipGeometry = new THREE.ConeGeometry(1, 4, 4);
+    const material = new THREE.MeshPhongMaterial({
+        color: playerData.shipColor || '#4fd1c5',
+        flatShading: true
+    });
+    
+    const shipBody = new THREE.Mesh(shipGeometry, material);
+    // Rotate ship to face forward instead of upward
+    shipBody.rotation.x = Math.PI / 2;
+    playerShip.add(shipBody);
+    
+    // Create name sprite and position it above the ship
+    const nameSprite = createPlayerNameSprite(playerData.name, playerData.shipColor);
+    nameSprite.position.set(0, 3, 0); // Position higher above the ship (changed from 2 to 3)
+    playerShip.add(nameSprite);
+    
+    // Set initial position
+    if (playerData.position) {
+        playerShip.position.set(
+            playerData.position.x,
+            playerData.position.y,
+            playerData.position.z
+        );
+    }
+    
+    // Set initial rotation
+    if (playerData.rotation) {
+        playerShip.rotation.set(
+            playerData.rotation.x,
+            playerData.rotation.y,
+            playerData.rotation.z
+        );
+    }
+    
+    // Add to scene
+    game.scene.add(playerShip);
+    
+    // Store player data
+    game.multiplayerPlayers[id] = {
+        mesh: playerShip,
+        nameSprite: nameSprite,
+        name: playerData.name || 'Player',
+        position: playerShip.position.clone(),
+        rotation: playerShip.rotation.clone(),
+        lap: playerData.lap || 0,
+        progress: playerData.progress || 0,
+        racing: playerData.racing || false
+    };
+    
+    console.log(`Added multiplayer player: ${id} (${playerData.name || 'Player'}) - InCountdown: ${game.inCountdown}`);
+}
+
+// Update a multiplayer player's position
+function updateMultiplayerPlayer(data) {
+    const player = game.multiplayerPlayers[data.id];
+    if (!player) return;
+    
+    // Update position with smooth transition
+    if (data.position) {
+        player.mesh.position.lerp(
+            new THREE.Vector3(
+                data.position.x,
+                data.position.y,
+                data.position.z
+            ),
+            0.3
+        );
+    }
+    
+    // Update rotation with smooth transition
+    if (data.rotation) {
+        player.mesh.rotation.y = data.rotation.y;
+        
+        // Apply tilt for banking effect if there's z rotation
+        if (data.rotation.z) {
+            player.mesh.rotation.z = data.rotation.z;
+        }
+    }
+    
+    // Update other data
+    player.lap = data.lap || player.lap;
+    player.progress = data.progress || player.progress;
+    player.racing = data.racing !== undefined ? data.racing : player.racing;
+}
+
+// Remove a multiplayer player from the scene
+function removeMultiplayerPlayer(id) {
+    const player = game.multiplayerPlayers[id];
+    if (!player) return;
+    
+    // Remove mesh from scene (the group contains both the ship and the name sprite)
+    if (player.mesh) {
+        // The sprite is a child of the mesh (group), so it gets removed automatically
+        game.scene.remove(player.mesh);
+    }
+    
+    // Remove from players object
+    delete game.multiplayerPlayers[id];
+    
+    console.log(`Removed multiplayer player: ${id}`);
+}
+
+// Update function
+function update() {
+    // ... existing code ...
+    
+    // Send player position updates in multiplayer mode
+    if (game.multiplayer && game.isConnected && game.ship) {
+        game.socket.emit('playerUpdate', {
+            position: {
+                x: game.ship.position.x,
+                y: game.ship.position.y,
+                z: game.ship.position.z
+            },
+            rotation: {
+                x: game.ship.rotation.x,
+                y: game.ship.rotation.y,
+                z: game.ship.rotation.z
+            },
+            lap: game.lap,
+            progress: game.trackProgress,
+            racing: game.racing
+        });
+    }
+    
+    // ... existing code ...
+}
+
+// Create a text sprite for player names
+function createPlayerNameSprite(name, color) {
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+    canvas.width = 256;
+    canvas.height = 64;
+    
+    // Draw background - more translucent black
+    context.fillStyle = 'rgba(0, 0, 0, 0.5)';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    
+    // Draw text - always white for better visibility
+    context.font = 'bold 30px Arial'; // Increase the font size from 24px to 30px
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.fillStyle = '#FFFFFF';
+    context.fillText(name || 'Player', canvas.width / 2, canvas.height / 2);
+    
+    // Create texture from canvas
+    const texture = new THREE.CanvasTexture(canvas);
+    
+    // Create sprite material
+    const material = new THREE.SpriteMaterial({
+        map: texture,
+        transparent: true
+    });
+    
+    // Create sprite
+    const sprite = new THREE.Sprite(material);
+    sprite.scale.set(3, 0.75, 1); // Increase sprite scale from (2, 0.5, 1) to (3, 0.75, 1)
+    
+    return sprite;
+}
+
+// Reset race locally without emitting a broadcast (to prevent loops)
+function resetLocalRaceToStart() {
+    // Stop racing
+    game.racing = false;
+    
+    // If in the finish screen, go back to the game
+    finishScreenEl.classList.add('hidden');
+    hudEl.classList.remove('hidden');
+    
+    // Reset timing
+    game.lap = 0;
+    game.elapsedTime = 0;
+    game.startTime = Date.now(); // Ensure this is set to current time
+    
+    // Reset timer display immediately
+    timerValueEl.textContent = formatTime(0);
+    
+    // Update HUD
+    updateHUD();
+    
+    // Position ship at starting line
+    positionShipAtStart();
+    
+    // Clear boosts
+    game.boostAmount = 100;
+    updateBoostMeter();
+    
+    // Add any pending players before starting new countdown
+    if (game.multiplayer && game.pendingPlayerJoins.length > 0) {
+        game.pendingPlayerJoins.forEach(player => {
+            addMultiplayerPlayer(player.id, player);
+        });
+        game.pendingPlayerJoins = []; // Clear the pending joins
+    }
+    
+    // Start countdown without emitting more events
+    startCountdown();
 }
 
 // Initialize the game
