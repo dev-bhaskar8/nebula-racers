@@ -2,50 +2,141 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>Redirecting...</title>
+    <title>Nebula Racers - Launching...</title>
     <style>
         body {
             margin: 0;
-            background: #121212;
+            background: #000011;
+            color: #4fd1c5;
+            font-family: 'Arial', sans-serif;
             display: flex;
+            flex-direction: column;
             align-items: center;
             justify-content: center;
             height: 100vh;
             overflow: hidden;
+            text-align: center;
+        }
+        .container {
+            position: relative;
+            z-index: 1;
+        }
+        h1 {
+            font-size: 3rem;
+            text-transform: uppercase;
+            margin-bottom: 0.5rem;
+            text-shadow: 0 0 10px rgba(79, 209, 197, 0.7);
+            animation: pulse 2s infinite;
+        }
+        .message {
+            font-size: 1.5rem;
+            margin-bottom: 2rem;
+            color: #9f7aea;
+            text-shadow: 0 0 5px rgba(159, 122, 234, 0.7);
         }
         .loader {
-            width: 40px;
-            height: 40px;
+            width: 60px;
+            height: 60px;
             border: 4px solid rgba(79, 209, 197, 0.3);
             border-radius: 50%;
             border-top: 4px solid #4fd1c5;
+            border-right: 4px solid #9f7aea;
             animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+        .stars {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 0;
+        }
+        .star {
+            position: absolute;
+            background-color: white;
+            border-radius: 50%;
+            opacity: 0.8;
+            animation: twinkle 4s infinite;
         }
         @keyframes spin {
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.7; }
+            100% { opacity: 1; }
+        }
+        @keyframes twinkle {
+            0% { opacity: 0.2; }
+            50% { opacity: 0.8; }
+            100% { opacity: 0.2; }
+        }
     </style>
     <script>
-        // Fetch tunnel URL and redirect instantly
-        fetch('./tunnel-config.json?t=' + Date.now())
-            .then(response => response.json())
-            .then(data => {
-                if (data && data.tunnelUrl) {
-                    window.location.href = data.tunnelUrl;
-                    // Add meta refresh as fallback
-                    const meta = document.createElement('meta');
-                    meta.httpEquiv = 'refresh';
-                    meta.content = '0;url=' + data.tunnelUrl;
-                    document.head.appendChild(meta);
-                }
-            })
-            .catch(error => {
-                console.error('Error fetching tunnel URL:', error);
-            });
+        // Create stars on page load
+        window.onload = function() {
+            createStars();
+            
+            // Fetch tunnel URL and redirect instantly
+            fetch('./tunnel-config.json?t=' + Date.now())
+                .then(response => response.json())
+                .then(data => {
+                    if (data && data.tunnelUrl) {
+                        // Redirect as quickly as possible
+                        window.location.href = data.tunnelUrl;
+                        
+                        // Add meta refresh as fallback
+                        const meta = document.createElement('meta');
+                        meta.httpEquiv = 'refresh';
+                        meta.content = '0;url=' + data.tunnelUrl;
+                        document.head.appendChild(meta);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching tunnel URL:', error);
+                    document.getElementById('message').textContent = 'Connection issue. Please try again soon.';
+                });
+        };
+        
+        // Create a starry background
+        function createStars() {
+            const starsContainer = document.querySelector('.stars');
+            const count = 100;
+            
+            for (let i = 0; i < count; i++) {
+                const star = document.createElement('div');
+                star.className = 'star';
+                
+                // Random size
+                const size = Math.random() * 3;
+                star.style.width = `${size}px`;
+                star.style.height = `${size}px`;
+                
+                // Random position
+                star.style.left = `${Math.random() * 100}%`;
+                star.style.top = `${Math.random() * 100}%`;
+                
+                // Random animation delay
+                star.style.animationDelay = `${Math.random() * 4}s`;
+                
+                // Random color (teal, purple, or white)
+                const colors = ['#ffffff', '#4fd1c5', '#9f7aea'];
+                star.style.backgroundColor = colors[Math.floor(Math.random() * colors.length)];
+                
+                starsContainer.appendChild(star);
+            }
+        }
     </script>
 </head>
 <body>
-    <div class="loader"></div>
+    <div class="stars"></div>
+    <div class="container">
+        <h1>Nebula Racers</h1>
+        <p class="message" id="message">Strap in, pilot! Launching to game server...</p>
+        <div class="loader"></div>
+    </div>
 </body>
 </html>
