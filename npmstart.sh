@@ -57,6 +57,10 @@ else
     if command -v git &> /dev/null && git rev-parse --is-inside-work-tree &> /dev/null; then
         echo "Attempting to automatically push updated tunnel URL to GitHub..."
         
+        # Pull latest changes from remote repository
+        echo "Pulling latest changes from remote repository..."
+        git pull origin main
+        
         # Reset local repository to match remote main branch
         echo "Resetting local repository to match remote main branch..."
         git reset --hard origin/main
