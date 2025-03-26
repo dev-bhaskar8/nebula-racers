@@ -86,6 +86,7 @@
             margin-top: 2rem;
             width: 100%;
             max-width: 500px;
+            display: none; /* Hide by default, only show when server is offline */
         }
         .url-input input {
             width: 70%;
@@ -109,6 +110,25 @@
             margin-top: 1rem;
             display: none;
         }
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255,255,255,.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 1s ease-in-out infinite;
+            margin-right: 10px;
+            vertical-align: middle;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        #status-message {
+            margin-top: 1rem;
+            font-style: italic;
+            opacity: 0.8;
+        }
     </style>
 </head>
 <body>
@@ -116,10 +136,14 @@
     <div class="container">
         <h1>Nebula Racers</h1>
         <p>A fast-paced, multiplayer space racing game built with Three.js. Race against your friends through space!</p>
-        <a href="#" id="play-button" class="play-button">Play Now</a>
+        <a href="#" id="play-button" class="play-button">
+            <span id="loading-indicator" class="loading"></span>
+            <span id="button-text">Connecting...</span>
+        </a>
+        <p id="status-message">Looking for latest tunnel URL...</p>
         <p id="offline-message">The game server appears to be offline. Please try again later or enter a new tunnel URL below.</p>
         
-        <div class="url-input">
+        <div class="url-input" id="url-input">
             <input type="text" id="tunnel-url" placeholder="Enter new Cloudflare tunnel URL">
             <button id="update-url">Update</button>
         </div>
@@ -144,80 +168,139 @@
                 starsContainer.appendChild(star);
             }
             
-            // Get the last URL from localStorage or use a default
-            let tunnelUrl = localStorage.getItem('nebula_tunnel_url') || '';
+            // Initialize elements
             const playButton = document.getElementById('play-button');
+            const buttonText = document.getElementById('button-text');
+            const loadingIndicator = document.getElementById('loading-indicator');
             const urlInput = document.getElementById('tunnel-url');
+            const urlInputContainer = document.getElementById('url-input');
             const offlineMessage = document.getElementById('offline-message');
             const lastUpdatedDate = document.getElementById('last-updated-date');
+            const statusMessage = document.getElementById('status-message');
             
-            // Set the input field to the current URL
-            urlInput.value = tunnelUrl;
-            
-            // Update last updated date
-            const lastUpdated = localStorage.getItem('nebula_last_updated') || new Date().toLocaleString();
-            lastUpdatedDate.textContent = lastUpdated;
-            
-            // Check if we have a valid URL
-            if (!tunnelUrl) {
-                offlineMessage.style.display = 'block';
-                offlineMessage.textContent = 'Please enter a Cloudflare tunnel URL below to start playing.';
+            // Function to fetch the tunnel config
+            async function fetchTunnelConfig() {
+                try {
+                    // Try to fetch the config file with a cache-busting parameter
+                    const response = await fetch('./tunnel-config.json?nocache=' + new Date().getTime());
+                    if (!response.ok) {
+                        throw new Error(`Failed to fetch tunnel config: ${response.status}`);
+                    }
+                    
+                    const config = await response.json();
+                    return config;
+                } catch (error) {
+                    console.error('Error fetching tunnel config:', error);
+                    return null;
+                }
             }
             
-            // Handle play button click
-            playButton.addEventListener('click', function(e) {
-                e.preventDefault();
+            // Function to check if a URL is reachable
+            async function isUrlReachable(url) {
+                try {
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 5000);
+                    
+                    const response = await fetch(url, { 
+                        mode: 'no-cors',
+                        signal: controller.signal
+                    });
+                    
+                    clearTimeout(timeoutId);
+                    return true;
+                } catch (error) {
+                    console.error(`Error checking URL ${url}:`, error);
+                    return false;
+                }
+            }
+            
+            // Initialize the page
+            async function initPage() {
+                // Get the stored URL from localStorage (as fallback)
+                let tunnelUrl = localStorage.getItem('nebula_tunnel_url') || '';
+                let configLastUpdated = localStorage.getItem('nebula_last_updated') || '-';
+                
+                // Try to get the tunnel URL from the config file first
+                statusMessage.textContent = "Fetching latest tunnel URL...";
+                const config = await fetchTunnelConfig();
+                
+                if (config && config.tunnelUrl) {
+                    tunnelUrl = config.tunnelUrl;
+                    configLastUpdated = config.lastUpdated;
+                    
+                    // Store in localStorage as backup
+                    localStorage.setItem('nebula_tunnel_url', tunnelUrl);
+                    localStorage.setItem('nebula_last_updated', configLastUpdated);
+                    
+                    statusMessage.textContent = "Tunnel URL found! Checking if server is online...";
+                } else {
+                    statusMessage.textContent = "Could not fetch latest tunnel URL. Using cached value if available.";
+                }
+                
+                // Update the UI with what we found
+                urlInput.value = tunnelUrl;
+                lastUpdatedDate.textContent = configLastUpdated;
+                
+                // Check if we have a URL and if it's reachable
                 if (!tunnelUrl) {
+                    // No URL at all - show the manual input
+                    buttonText.textContent = "Play Now";
+                    loadingIndicator.style.display = 'none';
                     offlineMessage.style.display = 'block';
+                    offlineMessage.textContent = 'Please enter a Cloudflare tunnel URL below to start playing.';
+                    urlInputContainer.style.display = 'block';
+                    statusMessage.textContent = "No tunnel URL found. Please enter one manually.";
                     return;
                 }
                 
-                playButton.textContent = 'Launching...';
+                // We have a URL, check if it's reachable
+                const isReachable = await isUrlReachable(tunnelUrl);
                 
-                // Check if the URL is reachable
-                const img = new Image();
-                let timedOut = false;
-                
-                const timeout = setTimeout(function() {
-                    timedOut = true;
-                    offlineMessage.style.display = 'block';
-                    playButton.textContent = 'Play Now';
-                }, 5000);
-                
-                img.onload = function() {
-                    if (!timedOut) {
-                        clearTimeout(timeout);
+                if (isReachable) {
+                    // URL is reachable, ready to play!
+                    buttonText.textContent = "Play Now";
+                    loadingIndicator.style.display = 'none';
+                    offlineMessage.style.display = 'none';
+                    statusMessage.textContent = "Server is online! Click 'Play Now' to start.";
+                    
+                    // Set the button to redirect to the game
+                    playButton.onclick = function(e) {
+                        e.preventDefault();
+                        buttonText.textContent = "Launching...";
                         window.location.href = tunnelUrl;
-                    }
-                };
-                
-                img.onerror = function() {
-                    if (!timedOut) {
-                        clearTimeout(timeout);
-                        offlineMessage.style.display = 'block';
-                        playButton.textContent = 'Play Now';
-                    }
-                };
-                
-                img.src = tunnelUrl + '/favicon.ico';
-                
-                setTimeout(function() {
-                    window.location.href = tunnelUrl;
-                }, 500);
-            });
+                    };
+                } else {
+                    // URL is not reachable, show offline message
+                    buttonText.textContent = "Server Offline";
+                    loadingIndicator.style.display = 'none';
+                    offlineMessage.style.display = 'block';
+                    urlInputContainer.style.display = 'block';
+                    statusMessage.textContent = "Server appears to be offline. You can try entering a new URL.";
+                }
+            }
             
-            // Handle URL update
+            // Initialize the page
+            initPage();
+            
+            // Handle URL update button
             document.getElementById('update-url').addEventListener('click', function() {
                 const newUrl = urlInput.value.trim();
                 if (newUrl) {
-                    tunnelUrl = newUrl;
-                    localStorage.setItem('nebula_tunnel_url', tunnelUrl);
+                    localStorage.setItem('nebula_tunnel_url', newUrl);
                     localStorage.setItem('nebula_last_updated', new Date().toLocaleString());
                     lastUpdatedDate.textContent = new Date().toLocaleString();
                     offlineMessage.style.display = 'none';
-                    alert('Tunnel URL updated successfully!');
+                    
+                    // Redirect to the new URL
+                    buttonText.textContent = "Launching...";
+                    setTimeout(() => {
+                        window.location.href = newUrl;
+                    }, 500);
                 }
             });
+            
+            // Check for updates every 30 seconds
+            setInterval(initPage, 30000);
         });
     </script>
 </body>
