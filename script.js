@@ -54,7 +54,10 @@ let game = {
         lastTapTime: 0,      // For double-tap detection
         doubleTapDelay: 300, // Max time between taps in ms
         isDoubleTapped: false // Flag for double-tap and hold for boost
-    }
+    },
+    portal: null, // Reference to the Vibeverse portal
+    comingFromPortal: false, // Flag to track if player came from another game
+    referrerUrl: '' // Store the URL of referring game
 };
 
 // DOM elements
@@ -88,6 +91,26 @@ const keys = {
 
 // Initialize the game
 function init() {
+    // Check if player is coming from a portal
+    const urlParams = new URLSearchParams(window.location.search);
+    game.comingFromPortal = urlParams.get('portal') === 'true';
+    game.referrerUrl = urlParams.get('ref') || '';
+    
+    // Get player info from URL if coming from portal
+    if (game.comingFromPortal) {
+        const username = urlParams.get('username') || 'Player';
+        const color = urlParams.get('color') || '#4fd1c5';
+        
+        // Pre-fill player name and color
+        document.getElementById('player-name').value = username;
+        game.shipColor = color;
+        
+        // Auto-start game if coming from portal
+        setTimeout(() => {
+            startRace();
+        }, 100);
+    }
+    
     // Create scene
     game.scene = new THREE.Scene();
     game.scene.background = new THREE.Color(0x000011);
@@ -286,6 +309,12 @@ function generateTrack() {
     // Track parameters
     const trackRadius = game.trackLength / (2 * Math.PI);
     const trackSegments = 64;
+    
+    // Add the red planet at the center
+    createRedPlanet(trackRadius);
+    
+    // Add the Vibeverse portal outside the track
+    createVibeVersePortal(trackRadius);
     
     // Create track curve (circle for simplicity)
     const curve = new THREE.EllipseCurve(
@@ -1496,6 +1525,58 @@ function checkCollisions() {
     );
     
     let collisionOccurred = false;
+
+    // Check portal collision
+    if (game.portal && game.portal.mesh) {
+        const portalPosition = new THREE.Vector2(
+            game.portal.mesh.position.x,
+            game.portal.mesh.position.z
+        );
+        const portalRadius = 5; // Portal hit radius
+        
+        const distanceToPortal = shipPosition.distanceTo(portalPosition);
+        
+        if (distanceToPortal < portalRadius) {
+            // Handle portal entry - redirect to Vibeverse portal
+            redirectToVibeVersePortal();
+            return false; // Don't process other collisions
+        }
+    }
+    
+    // Check planet collision first
+    if (game.planet) {
+        // Create 2D position for planet (ignoring Y since it's centered)
+        const planetPosition = new THREE.Vector2(0, 0); // Planet is at center
+        const planetRadius = game.planet.geometry.parameters.radius;
+        
+        // Calculate distance from ship to planet center
+        const distanceToPlanet = shipPosition.distanceTo(planetPosition);
+        
+        // Check if ship is too close to planet (add buffer for ship size)
+        if (distanceToPlanet < planetRadius + 2) {
+            collisionOccurred = true;
+            
+            // Calculate bounce direction (away from planet center)
+            const bounceDirection = shipPosition.clone().sub(planetPosition).normalize();
+            
+            // Push ship away from planet and reduce velocity
+            game.ship.position.x = bounceDirection.x * (planetRadius + 2);
+            game.ship.position.z = bounceDirection.y * (planetRadius + 2);
+            
+            // Reduce velocity more significantly for planet collisions
+            game.velocity.multiplyScalar(0.3);
+            
+            // Add visual feedback for planet collision
+            if (game.planet.material.emissive) {
+                game.planet.material.emissive.setHex(0xff0000);
+                setTimeout(() => {
+                    if (game.planet.material.emissive) {
+                        game.planet.material.emissive.setHex(0);
+                    }
+                }, 200);
+            }
+        }
+    }
     
     // Check obstacle collisions
     for (const obstacle of game.obstacles) {
@@ -2084,8 +2165,49 @@ function animate() {
         });
     }
     
+    // Animate only the portal particles, keep the portal structure static
+    if (game.portal && game.portal.particles) {
+        const positions = game.portal.particles.geometry.attributes.position.array;
+        const time = Date.now() * 0.001;
+        
+        for (let i = 0; i < positions.length; i += 3) {
+            const i3 = i / 3;
+            const radius = 4 + Math.sin(i3 + time) * 0.5;
+            const angle = (i3 / positions.length * 3) * Math.PI * 2 + time;
+            
+            positions[i] = Math.cos(angle) * radius;
+            positions[i + 1] = Math.sin(i3 * 5 + time) * 1.5;
+            positions[i + 2] = Math.sin(angle) * radius;
+        }
+        
+        game.portal.particles.geometry.attributes.position.needsUpdate = true;
+    }
+    
+    // Also animate return portal particles if they exist
+    if (game.returnPortal && game.returnPortal.particles) {
+        const positions = game.returnPortal.particles.geometry.attributes.position.array;
+        const time = Date.now() * 0.001;
+        
+        for (let i = 0; i < positions.length; i += 3) {
+            const i3 = i / 3;
+            const radius = 4 + Math.sin(i3 + time) * 0.5;
+            const angle = (i3 / positions.length * 3) * Math.PI * 2 + time;
+            
+            positions[i] = Math.cos(angle) * radius;
+            positions[i + 1] = Math.sin(i3 * 5 + time) * 1.5;
+            positions[i + 2] = Math.sin(angle) * radius;
+        }
+        
+        game.returnPortal.particles.geometry.attributes.position.needsUpdate = true;
+    }
+    
     // Render scene
     game.renderer.render(game.scene, game.camera);
+    
+    // Rotate the planet (changed from +0.001 to -0.001 for opposite direction)
+    if (game.planet) {
+        game.planet.rotation.y -= 0.001;
+    }
 }
 
 // Animate boost items
@@ -2927,4 +3049,471 @@ function handleTouchEnd(event) {
         keys.Space = false;
         game.touchControls.isDoubleTapped = false;
     }
+}
+
+// Add the red planet to the scene
+function createRedPlanet(trackRadius) {
+    // Create a canvas for the planet texture
+    const textureSize = 1024;
+    const canvas = document.createElement('canvas');
+    canvas.width = textureSize;
+    canvas.height = textureSize;
+    const ctx = canvas.getContext('2d');
+
+    // Base color matching the obstacles (0xff3333)
+    const baseRed = 255;
+    const baseGreen = 51;
+    const baseBlue = 51;
+
+    // Create gradient bands
+    for (let y = 0; y < textureSize; y++) {
+        // Create horizontal bands with varying colors
+        const t = y / textureSize;
+        
+        // Increase band contrast
+        const bandFreq = 15; // Number of major bands
+        const noise = Math.sin(t * Math.PI * bandFreq) * 0.7 + 0.3; // Increased amplitude for more contrast
+        
+        // Create a gradient for each line
+        const gradient = ctx.createLinearGradient(0, y, textureSize, y);
+        
+        // Much darker base for more contrast
+        gradient.addColorStop(0, `rgb(${baseRed * 0.3 + noise * 100}, ${baseGreen * 0.2 + noise * 30}, ${baseBlue * 0.2 + noise * 30})`);
+        
+        // Higher contrast variations around the obstacle color
+        gradient.addColorStop(0.2, `rgb(${baseRed * 0.5 + noise * 120}, ${baseGreen * 0.3 + noise * 40}, ${baseBlue * 0.3 + noise * 40})`);
+        gradient.addColorStop(0.4, `rgb(${baseRed * 0.8 + noise * 80}, ${baseGreen * 0.4 + noise * 30}, ${baseBlue * 0.4 + noise * 30})`);
+        gradient.addColorStop(0.6, `rgb(${baseRed * 0.4 + noise * 150}, ${baseGreen * 0.25 + noise * 35}, ${baseBlue * 0.25 + noise * 35})`);
+        gradient.addColorStop(0.8, `rgb(${baseRed * 0.6 + noise * 100}, ${baseGreen * 0.35 + noise * 35}, ${baseBlue * 0.35 + noise * 35})`);
+        gradient.addColorStop(1, `rgb(${baseRed * 0.3 + noise * 100}, ${baseGreen * 0.2 + noise * 30}, ${baseBlue * 0.2 + noise * 30})`);
+
+        // Draw the line
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, y, textureSize, 1);
+    }
+
+    // Add stronger noise texture for more detail
+    for (let i = 0; i < 50000; i++) {
+        const x = Math.random() * textureSize;
+        const y = Math.random() * textureSize;
+        const r = Math.random() * 2 + 1;
+        
+        const brightness = Math.random() * 50 - 25; // Increased brightness variation
+        ctx.fillStyle = `rgba(${baseRed + brightness}, ${baseGreen * 0.4 + brightness * 0.3}, ${baseBlue * 0.4 + brightness * 0.3}, 0.15)`; // Increased opacity
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    // Create texture from canvas
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+
+    // Create the main planet sphere with increased size
+    const planetRadius = trackRadius * 0.6;
+    const planetGeometry = new THREE.SphereGeometry(planetRadius, 128, 128); // Increased segments for smoother appearance
+    const planetMaterial = new THREE.MeshStandardMaterial({
+        map: texture,
+        roughness: 0.7, // Slightly reduced roughness for better band visibility
+        metalness: 0.3, // Slightly increased metalness for better contrast
+        bumpScale: 0.02
+    });
+
+    const planet = new THREE.Mesh(planetGeometry, planetMaterial);
+    planet.position.y = -planetRadius * 0.3; // Slightly below track level
+    
+    // Add rotation axis tilt like Jupiter
+    planet.rotation.x = THREE.MathUtils.degToRad(3.13); // Jupiter's axial tilt
+    
+    game.scene.add(planet);
+
+    // Store reference for animation
+    game.planet = planet;
+}
+
+// Create Vibeverse portal
+function createVibeVersePortal(trackRadius) {
+    // Position the portal outside the track
+    const portalDistance = trackRadius * 1.5; // 50% outside track radius
+    const portalAngle = Math.PI / 4; // 45 degrees position
+    const portalX = Math.cos(portalAngle) * portalDistance;
+    const portalZ = Math.sin(portalAngle) * portalDistance;
+    const portalY = 5; // Height off ground
+    
+    // Create portal group
+    const portalGroup = new THREE.Group();
+    portalGroup.position.set(portalX, portalY, portalZ);
+    
+    // Make portal face toward center of track
+    portalGroup.lookAt(0, portalY, 0);
+    
+    // Create portal ring (torus)
+    const ringGeometry = new THREE.TorusGeometry(5, 0.5, 16, 32);
+    const ringMaterial = new THREE.MeshStandardMaterial({
+        color: 0x00ff44, // Green color
+        emissive: 0x00ff44,
+        emissiveIntensity: 0.5,
+        metalness: 0.7,
+        roughness: 0.3
+    });
+    const ring = new THREE.Mesh(ringGeometry, ringMaterial);
+    // No need to rotate the ring, as the parent group handles orientation
+    portalGroup.add(ring);
+    
+    // Create portal disk (center)
+    const diskGeometry = new THREE.CircleGeometry(4.5, 32);
+    const diskMaterial = new THREE.MeshBasicMaterial({
+        color: 0x00ff99,
+        transparent: true,
+        opacity: 0.7,
+        side: THREE.DoubleSide
+    });
+    const disk = new THREE.Mesh(diskGeometry, diskMaterial);
+    // No need to rotate the disk, as the parent group handles orientation
+    portalGroup.add(disk);
+    
+    // Add portal particles
+    const particleCount = 200;
+    const particleGeometry = new THREE.BufferGeometry();
+    const particlePositions = new Float32Array(particleCount * 3);
+    
+    for (let i = 0; i < particleCount; i++) {
+        const i3 = i * 3;
+        const radius = 4 + (Math.random() - 0.5);
+        const angle = (i / particleCount) * Math.PI * 2;
+        
+        particlePositions[i3] = Math.cos(angle) * radius;
+        particlePositions[i3 + 1] = (Math.random() - 0.5) * 2;
+        particlePositions[i3 + 2] = Math.sin(angle) * radius;
+    }
+    
+    particleGeometry.setAttribute('position', new THREE.BufferAttribute(particlePositions, 3));
+    
+    const particleMaterial = new THREE.PointsMaterial({
+        color: 0x00ff88,
+        size: 0.2,
+        transparent: true,
+        opacity: 0.8,
+        blending: THREE.AdditiveBlending
+    });
+    
+    const particles = new THREE.Points(particleGeometry, particleMaterial);
+    portalGroup.add(particles);
+    
+    // Add portal label
+    createPortalLabel(portalGroup, "Vibeverse Portal");
+    
+    // Store references
+    game.portal = {
+        mesh: portalGroup,
+        ring: ring,
+        disk: disk,
+        particles: particles
+    };
+    
+    // Add to scene
+    game.scene.add(portalGroup);
+    
+    // If player came from another game via portal, create a return portal
+    if (game.comingFromPortal && game.referrerUrl) {
+        createReturnPortal(trackRadius, game.referrerUrl);
+    }
+}
+
+// Create portal text label
+function createPortalLabel(portalGroup, text) {
+    // Create canvas for text
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+    canvas.width = 256;
+    canvas.height = 64;
+    
+    // Draw text
+    context.fillStyle = '#00ff88';
+    context.font = 'bold 32px Arial';
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.fillText(text, 128, 32);
+    
+    // Create texture and sprite
+    const texture = new THREE.CanvasTexture(canvas);
+    const material = new THREE.SpriteMaterial({ map: texture });
+    const sprite = new THREE.Sprite(material);
+    sprite.scale.set(10, 2.5, 1);
+    sprite.position.set(0, 8, 0); // Position above portal
+    
+    portalGroup.add(sprite);
+}
+
+// Create return portal for players coming from another game
+function createReturnPortal(trackRadius, referrerUrl) {
+    // Position the return portal opposite to the main portal
+    const portalDistance = trackRadius * 1.5;
+    const portalAngle = Math.PI * 5 / 4; // Opposite angle (225 degrees)
+    const portalX = Math.cos(portalAngle) * portalDistance;
+    const portalZ = Math.sin(portalAngle) * portalDistance;
+    const portalY = 5;
+    
+    // Create portal group
+    const portalGroup = new THREE.Group();
+    portalGroup.position.set(portalX, portalY, portalZ);
+    
+    // Make portal face toward center of track
+    portalGroup.lookAt(0, portalY, 0);
+    
+    // Create return portal similar to main portal but with different color
+    const ringGeometry = new THREE.TorusGeometry(5, 0.5, 16, 32);
+    const ringMaterial = new THREE.MeshStandardMaterial({
+        color: 0x0088ff, // Blue color for return portal
+        emissive: 0x0088ff,
+        emissiveIntensity: 0.5,
+        metalness: 0.7,
+        roughness: 0.3
+    });
+    const ring = new THREE.Mesh(ringGeometry, ringMaterial);
+    // No need to rotate the ring, as the parent group handles orientation
+    portalGroup.add(ring);
+    
+    const diskGeometry = new THREE.CircleGeometry(4.5, 32);
+    const diskMaterial = new THREE.MeshBasicMaterial({
+        color: 0x0099ff,
+        transparent: true,
+        opacity: 0.7,
+        side: THREE.DoubleSide
+    });
+    const disk = new THREE.Mesh(diskGeometry, diskMaterial);
+    // No need to rotate the disk, as the parent group handles orientation
+    portalGroup.add(disk);
+    
+    // Add portal particles
+    const particleCount = 200;
+    const particleGeometry = new THREE.BufferGeometry();
+    const particlePositions = new Float32Array(particleCount * 3);
+    
+    for (let i = 0; i < particleCount; i++) {
+        const i3 = i * 3;
+        const radius = 4 + (Math.random() - 0.5);
+        const angle = (i / particleCount) * Math.PI * 2;
+        
+        particlePositions[i3] = Math.cos(angle) * radius;
+        particlePositions[i3 + 1] = (Math.random() - 0.5) * 2;
+        particlePositions[i3 + 2] = Math.sin(angle) * radius;
+    }
+    
+    particleGeometry.setAttribute('position', new THREE.BufferAttribute(particlePositions, 3));
+    
+    const particleMaterial = new THREE.PointsMaterial({
+        color: 0x0088ff,
+        size: 0.2,
+        transparent: true,
+        opacity: 0.8,
+        blending: THREE.AdditiveBlending
+    });
+    
+    const particles = new THREE.Points(particleGeometry, particleMaterial);
+    portalGroup.add(particles);
+    
+    // Add return portal label
+    createPortalLabel(portalGroup, "Return Portal");
+    
+    // Store references
+    game.returnPortal = {
+        mesh: portalGroup,
+        ring: ring,
+        disk: disk,
+        particles: particles,
+        url: referrerUrl
+    };
+    
+    // Add to scene
+    game.scene.add(portalGroup);
+    
+    // Add collision detection for return portal
+    game.checkReturnPortalCollision = true;
+}
+
+// Redirect player to Vibeverse portal
+function redirectToVibeVersePortal() {
+    // Construct URL parameters
+    const username = game.playerName || 'Player';
+    const color = game.shipColor.startsWith('#') ? game.shipColor : '#' + game.shipColor;
+    const speed = game.speed.toFixed(1);
+    const refUrl = window.location.href.split('?')[0]; // Remove existing query params
+    
+    // Encode URL parameters
+    const params = new URLSearchParams();
+    params.append('username', username);
+    params.append('color', color);
+    params.append('speed', speed);
+    params.append('ref', refUrl);
+    
+    // Construct full redirect URL
+    const redirectUrl = `http://portal.pieter.com/?${params.toString()}`;
+    
+    // Add a portal transition effect
+    const transitionOverlay = document.createElement('div');
+    transitionOverlay.style.position = 'fixed';
+    transitionOverlay.style.top = '0';
+    transitionOverlay.style.left = '0';
+    transitionOverlay.style.width = '100%';
+    transitionOverlay.style.height = '100%';
+    transitionOverlay.style.backgroundColor = '#00ff88';
+    transitionOverlay.style.opacity = '0';
+    transitionOverlay.style.zIndex = '10000';
+    transitionOverlay.style.transition = 'opacity 0.5s ease-in-out';
+    document.body.appendChild(transitionOverlay);
+    
+    // Trigger fade-in
+    setTimeout(() => {
+        transitionOverlay.style.opacity = '1';
+        
+        // Redirect after animation completes
+        setTimeout(() => {
+            window.location.href = redirectUrl;
+        }, 600);
+    }, 10);
+}
+
+// Check for collisions with obstacles, boost items, and portals
+function checkCollisions() {
+    if (!game.ship) return false;
+    
+    const shipPosition = new THREE.Vector2(
+        game.ship.position.x,
+        game.ship.position.z
+    );
+    
+    let collisionOccurred = false;
+
+    // Check portal collision
+    if (game.portal && game.portal.mesh) {
+        const portalPosition = new THREE.Vector2(
+            game.portal.mesh.position.x,
+            game.portal.mesh.position.z
+        );
+        const portalRadius = 5; // Portal hit radius
+        
+        const distanceToPortal = shipPosition.distanceTo(portalPosition);
+        
+        if (distanceToPortal < portalRadius) {
+            // Handle portal entry - redirect to Vibeverse portal
+            redirectToVibeVersePortal();
+            return false; // Don't process other collisions
+        }
+    }
+    
+    // Check return portal collision if exists
+    if (game.checkReturnPortalCollision && game.returnPortal && game.returnPortal.mesh) {
+        const returnPortalPosition = new THREE.Vector2(
+            game.returnPortal.mesh.position.x,
+            game.returnPortal.mesh.position.z
+        );
+        const returnPortalRadius = 5; // Portal hit radius
+        
+        const distanceToReturnPortal = shipPosition.distanceTo(returnPortalPosition);
+        
+        if (distanceToReturnPortal < returnPortalRadius) {
+            // Redirect back to original game
+            const transitionOverlay = document.createElement('div');
+            transitionOverlay.style.position = 'fixed';
+            transitionOverlay.style.top = '0';
+            transitionOverlay.style.left = '0';
+            transitionOverlay.style.width = '100%';
+            transitionOverlay.style.height = '100%';
+            transitionOverlay.style.backgroundColor = '#0088ff';
+            transitionOverlay.style.opacity = '0';
+            transitionOverlay.style.zIndex = '10000';
+            transitionOverlay.style.transition = 'opacity 0.5s ease-in-out';
+            document.body.appendChild(transitionOverlay);
+            
+            // Trigger fade-in
+            setTimeout(() => {
+                transitionOverlay.style.opacity = '1';
+                
+                // Redirect after animation completes
+                setTimeout(() => {
+                    window.location.href = game.returnPortal.url;
+                }, 600);
+            }, 10);
+            
+            return false; // Don't process other collisions
+        }
+    }
+
+    // Check planet collision first
+    if (game.planet) {
+        // Create 2D position for planet (ignoring Y since it's centered)
+        const planetPosition = new THREE.Vector2(0, 0); // Planet is at center
+        const planetRadius = game.planet.geometry.parameters.radius;
+        
+        // Calculate distance from ship to planet center
+        const distanceToPlanet = shipPosition.distanceTo(planetPosition);
+        
+        // Check if ship is too close to planet (add buffer for ship size)
+        if (distanceToPlanet < planetRadius + 2) {
+            collisionOccurred = true;
+            
+            // Calculate bounce direction (away from planet center)
+            const bounceDirection = shipPosition.clone().sub(planetPosition).normalize();
+            
+            // Push ship away from planet and reduce velocity
+            game.ship.position.x = bounceDirection.x * (planetRadius + 2);
+            game.ship.position.z = bounceDirection.y * (planetRadius + 2);
+            
+            // Reduce velocity more significantly for planet collisions
+            game.velocity.multiplyScalar(0.3);
+            
+            // Add visual feedback for planet collision
+            if (game.planet.material.emissive) {
+                game.planet.material.emissive.setHex(0xff0000);
+                setTimeout(() => {
+                    if (game.planet.material.emissive) {
+                        game.planet.material.emissive.setHex(0);
+                    }
+                }, 200);
+            }
+        }
+    }
+    
+    // Check obstacle collisions
+    for (const obstacle of game.obstacles) {
+        const distance = shipPosition.distanceTo(obstacle.position);
+        
+        if (distance < obstacle.radius + 1.5) {
+            // Collision with obstacle - report collision
+            collisionOccurred = true;
+            
+            // Visual feedback
+            if (obstacle.mesh.material.emissive) {
+                obstacle.mesh.material.emissive.setHex(0xff0000);
+                setTimeout(() => {
+                    if (obstacle.mesh.material.emissive) {
+                        obstacle.mesh.material.emissive.setHex(0);
+                    }
+                }, 200);
+            }
+            
+            break;
+        }
+    }
+    
+    // Check boost item collisions
+    for (const boost of game.boosts) {
+        if (!boost.mesh.userData.active) continue;
+        
+        const distance = shipPosition.distanceTo(boost.position);
+        
+        if (distance < boost.radius + 2) {
+            // Collect boost item
+            boost.mesh.userData.active = false;
+            boost.mesh.visible = false;
+            
+            // Add boost to player
+            game.boostAmount = Math.min(game.maxBoost, game.boostAmount + 30);
+            updateBoostMeter();
+        }
+    }
+    
+    return collisionOccurred;
 }
