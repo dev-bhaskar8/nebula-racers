@@ -2,7 +2,6 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <meta http-equiv="refresh" content="0;url=about:blank" id="redirect">
     <title>Redirecting...</title>
     <style>
         body {
@@ -34,8 +33,15 @@
             .then(data => {
                 if (data && data.tunnelUrl) {
                     window.location.href = data.tunnelUrl;
-                    document.getElementById('redirect').content = "0;url=" + data.tunnelUrl;
+                    // Add meta refresh as fallback
+                    const meta = document.createElement('meta');
+                    meta.httpEquiv = 'refresh';
+                    meta.content = '0;url=' + data.tunnelUrl;
+                    document.head.appendChild(meta);
                 }
+            })
+            .catch(error => {
+                console.error('Error fetching tunnel URL:', error);
             });
     </script>
 </head>
