@@ -46,7 +46,15 @@ let game = {
     inCountdown: false, // Flag to track if the game is in countdown
     pendingPlayerJoins: [], // Track players who tried to join during countdown
     checkpointsPassed: {}, // Track which checkpoints have been passed for the current lap
-    requiredProgressForLap: true // Flag to enforce full track progress for a lap
+    requiredProgressForLap: true, // Flag to enforce full track progress for a lap
+    touchControls: {  // Touch/mouse control state
+        isPressed: false,
+        startX: 0,
+        currentX: 0,
+        lastTapTime: 0,      // For double-tap detection
+        doubleTapDelay: 300, // Max time between taps in ms
+        isDoubleTapped: false // Flag for double-tap and hold for boost
+    }
 };
 
 // DOM elements
@@ -80,34 +88,38 @@ const keys = {
 
 // Initialize the game
 function init() {
-    // Set up Three.js scene
+    // Create scene
     game.scene = new THREE.Scene();
-    game.camera = new THREE.PerspectiveCamera(
-        75, 
-        window.innerWidth / window.innerHeight, 
-        0.1, 
-        1000
-    );
+    game.scene.background = new THREE.Color(0x000011);
     
+    // Create camera
+    game.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    game.camera.position.set(0, 10, -15);
+    game.camera.lookAt(0, 0, 0);
+    
+    // Create renderer
     game.renderer = new THREE.WebGLRenderer({ antialias: true });
     game.renderer.setSize(window.innerWidth, window.innerHeight);
-    game.renderer.setClearColor(0x000000);
+    game.renderer.setPixelRatio(window.devicePixelRatio);
     game.renderer.shadowMap.enabled = true;
-    game.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     document.getElementById('game-container').appendChild(game.renderer.domElement);
     
     // Add ambient light
-    const ambientLight = new THREE.AmbientLight(0x404040);
+    const ambientLight = new THREE.AmbientLight(0x333333);
     game.scene.add(ambientLight);
     
-    // Add directional light with shadows
+    // Add directional light (for shadows)
     const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
-    directionalLight.position.set(50, 100, 50);
+    directionalLight.position.set(5, 10, 7.5);
     directionalLight.castShadow = true;
+    
+    // Configure shadow properties
     directionalLight.shadow.mapSize.width = 1024;
     directionalLight.shadow.mapSize.height = 1024;
-    directionalLight.shadow.camera.near = 10;
-    directionalLight.shadow.camera.far = 1000;
+    directionalLight.shadow.camera.near = 0.5;
+    directionalLight.shadow.camera.far = 50;
+    
+    // Increase shadow frustum size
     directionalLight.shadow.camera.left = -100;
     directionalLight.shadow.camera.right = 100;
     directionalLight.shadow.camera.top = 100;
@@ -141,6 +153,19 @@ function init() {
         game.multiplayer = this.checked;
         updateConnectionStatus();
     });
+    
+    // Add touch/mouse controls
+    const gameContainer = document.getElementById('game-container');
+    gameContainer.addEventListener('mousedown', handleTouchStart);
+    gameContainer.addEventListener('mousemove', handleTouchMove);
+    gameContainer.addEventListener('mouseup', handleTouchEnd);
+    gameContainer.addEventListener('mouseleave', handleTouchEnd);
+    
+    // Touch events for mobile
+    gameContainer.addEventListener('touchstart', handleTouchStart);
+    gameContainer.addEventListener('touchmove', handleTouchMove);
+    gameContainer.addEventListener('touchend', handleTouchEnd);
+    gameContainer.addEventListener('touchcancel', handleTouchEnd);
     
     // Start animation loop
     animate();
@@ -600,6 +625,12 @@ function startRace() {
     // Hide multiplayer toggle during race, but keep connection status visible
     document.getElementById('multiplayer-selection').classList.add('hidden');
     
+    // Hide Vibe Jam badge during race
+    const vibeJamBadge = document.getElementById('vibe-jam-badge');
+    if (vibeJamBadge) {
+        vibeJamBadge.style.display = 'none';
+    }
+    
     // Setup game elements
     createShip();
     generateTrack();
@@ -969,6 +1000,12 @@ function restartRace() {
     // Reset camera
     game.camera.position.set(0, 10, -15);
     game.camera.lookAt(0, 0, 0);
+    
+    // Show Vibe Jam badge when returning to menu
+    const vibeJamBadge = document.getElementById('vibe-jam-badge');
+    if (vibeJamBadge) {
+        vibeJamBadge.style.display = 'block';
+    }
     
     // Hide finish screen, show menu and multiplayer toggle
     finishScreenEl.classList.add('hidden');
@@ -1805,6 +1842,12 @@ function finishRace() {
     // Show finish screen
     finishScreenEl.classList.remove('hidden');
     hudEl.classList.add('hidden');
+    
+    // Keep Vibe Jam badge hidden on finish screen
+    const vibeJamBadge = document.getElementById('vibe-jam-badge');
+    if (vibeJamBadge) {
+        vibeJamBadge.style.display = 'none';
+    }
     
     // Set finish screen values
     finalTimeEl.textContent = `TIME: ${formatTime(finalTime)}`;
@@ -2761,5 +2804,127 @@ function disconnectFromServer() {
                 game.multiplayer = false;
             }
         }
+    }
+}
+
+// Handle touch/mouse start
+function handleTouchStart(event) {
+    // Only process if racing
+    if (!game.racing) return;
+    
+    // Only prevent default behavior if we're racing
+    event.preventDefault();
+    
+    // Get current time for double-tap detection
+    const currentTime = Date.now();
+    
+    // Check if this is a double-tap (second tap within the time window)
+    if (currentTime - game.touchControls.lastTapTime < game.touchControls.doubleTapDelay) {
+        // This is a double-tap, activate boost (like pressing Space)
+        game.touchControls.isDoubleTapped = true;
+        keys.Space = true;
+    } else {
+        // This is a single tap, just normal touch controls
+        game.touchControls.isDoubleTapped = false;
+    }
+    
+    // Update last tap time
+    game.touchControls.lastTapTime = currentTime;
+    
+    // Set touch control state
+    game.touchControls.isPressed = true;
+    
+    // Get X position (works for both mouse and touch)
+    if (event.type === 'touchstart') {
+        game.touchControls.startX = event.touches[0].clientX;
+        game.touchControls.currentX = event.touches[0].clientX;
+    } else {
+        game.touchControls.startX = event.clientX;
+        game.touchControls.currentX = event.clientX;
+    }
+    
+    // Set forward acceleration (like pressing Up arrow)
+    // Only set forward if not double-tapped - avoid conflicts
+    if (!game.touchControls.isDoubleTapped) {
+        keys.ArrowUp = true;
+    }
+}
+
+// Handle touch/mouse move
+function handleTouchMove(event) {
+    // Only process if racing and touch is active
+    if (!game.racing || !game.touchControls.isPressed) return;
+    
+    // Only prevent default behavior if we're racing and handling touch
+    event.preventDefault();
+    
+    // Update current X position
+    if (event.type === 'touchmove') {
+        game.touchControls.currentX = event.touches[0].clientX;
+    } else {
+        game.touchControls.currentX = event.clientX;
+    }
+    
+    // If this is a double-tap boost, we still want turning but not regular indicator updates
+    if (game.touchControls.isDoubleTapped) {
+        const screenWidth = window.innerWidth;
+        const moveThreshold = screenWidth * 0.05; // 5% of screen width
+        const xDiff = game.touchControls.currentX - game.touchControls.startX;
+        
+        // Reset turning keys first
+        keys.ArrowLeft = false;
+        keys.ArrowRight = false;
+        
+        // Apply turning during boost
+        if (xDiff < -moveThreshold) {
+            // Turn left during boost
+            keys.ArrowLeft = true;
+        } else if (xDiff > moveThreshold) {
+            // Turn right during boost
+            keys.ArrowRight = true;
+        }
+        
+        return; // Skip regular movement handling
+    }
+    
+    // Regular movement handling
+    const screenWidth = window.innerWidth;
+    const moveThreshold = screenWidth * 0.05; // 5% of screen width
+    const xDiff = game.touchControls.currentX - game.touchControls.startX;
+    
+    // Reset turning keys first
+    keys.ArrowLeft = false;
+    keys.ArrowRight = false;
+    
+    // Apply turning based on horizontal movement
+    if (xDiff < -moveThreshold) {
+        // Turn left
+        keys.ArrowLeft = true;
+    } else if (xDiff > moveThreshold) {
+        // Turn right
+        keys.ArrowRight = true;
+    }
+}
+
+// Handle touch/mouse end
+function handleTouchEnd(event) {
+    // Only process if racing
+    if (!game.racing) return;
+    
+    // Only prevent default behavior if we're racing
+    event.preventDefault();
+    
+    // Stop all touch-controlled movement
+    game.touchControls.isPressed = false;
+    
+    // Reset ALL directional keys regardless of boost state
+    keys.ArrowUp = false;
+    keys.ArrowLeft = false;
+    keys.ArrowRight = false;
+    
+    // If this was a double-tap and hold for boost, release boost
+    if (game.touchControls.isDoubleTapped) {
+        keys.Space = false;
+        game.touchControls.isDoubleTapped = false;
     }
 }

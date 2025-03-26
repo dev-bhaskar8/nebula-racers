@@ -390,8 +390,9 @@ body, html {
 }
 
 .instructions li {
-    padding: 1px 0;
     display: flex;
+    margin-bottom: 6px;
+    align-items: center;
 }
 
 .instructions li:before {
@@ -440,14 +441,15 @@ body, html {
 }
 
 .control-key {
-    min-width: 90px;
+    min-width: 170px;
     display: inline-block;
     text-align: left;
     color: #4fd1c5;
 }
 
 .control-action {
-    flex-grow: 1;
+    display: inline-block;
+    min-width: 100px;
     text-align: left;
 }
 
