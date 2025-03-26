@@ -19,7 +19,6 @@
             background-image: 
                 radial-gradient(circle at 25% 25%, rgba(50, 50, 255, 0.2) 0%, transparent 50%),
                 radial-gradient(circle at 75% 75%, rgba(255, 50, 50, 0.2) 0%, transparent 50%);
-            overflow: hidden;
         }
         .container {
             text-align: center;
@@ -45,21 +44,17 @@
             margin-bottom: 2rem;
             line-height: 1.6;
         }
-        .play-button {
+        .loading {
             display: inline-block;
-            background: linear-gradient(45deg, #4fd1c5, #63b3ed);
-            color: white;
-            font-size: 1.5rem;
-            font-weight: bold;
-            text-decoration: none;
-            padding: 1rem 2rem;
-            border-radius: 50px;
-            transition: all 0.3s ease;
-            box-shadow: 0 4px 15px rgba(79, 209, 197, 0.3);
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255,255,255,.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 1s ease-in-out infinite;
         }
-        .play-button:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 10px 20px rgba(79, 209, 197, 0.4);
+        @keyframes spin {
+            to { transform: rotate(360deg); }
         }
         .url-input {
             margin-top: 2rem;
@@ -83,201 +78,69 @@
             cursor: pointer;
             margin-left: 10px;
         }
-        .stars {
-            position: absolute;
-            width: 100%;
-            height: 100%;
-            z-index: -1;
-        }
-        @keyframes twinkle {
-            0% {opacity: 0.3;}
-            50% {opacity: 1;}
-            100% {opacity: 0.3;}
-        }
-        .star {
-            position: absolute;
-            background-color: white;
-            border-radius: 50%;
-        }
-        .loading {
-            display: inline-block;
-            width: 20px;
-            height: 20px;
-            border: 3px solid rgba(255,255,255,.3);
-            border-radius: 50%;
-            border-top-color: #fff;
-            animation: spin 1s ease-in-out infinite;
-            margin-right: 10px;
-            vertical-align: middle;
-        }
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-        #redirect-message {
-            opacity: 0.8;
-        }
-        .hidden {
-            display: none;
-        }
-        #fallback-container {
+        #error-container {
             display: none;
         }
     </style>
 </head>
 <body>
-    <div class="stars" id="stars"></div>
-    <div class="container" id="redirect-container">
+    <div class="container">
         <h1>Nebula Racers</h1>
         <p>Redirecting to game server...</p>
         <div class="loading"></div>
-        <p id="redirect-message">If you are not redirected automatically, <a href="#" id="manual-redirect">click here</a>.</p>
     </div>
     
-    <!-- Fallback UI if redirection fails -->
-    <div class="container hidden" id="fallback-container">
+    <!-- Only shown if server is offline -->
+    <div class="container" id="error-container">
         <h1>Nebula Racers</h1>
-        <p>A fast-paced, multiplayer space racing game built with Three.js</p>
-        <p id="error-message">The server appears to be offline. Please try again later or enter a new tunnel URL below.</p>
+        <p>Server seems to be offline. Enter a new URL below:</p>
         
         <div class="url-input">
             <input type="text" id="tunnel-url" placeholder="Enter Cloudflare tunnel URL">
-            <button id="update-url">Connect</button>
+            <button id="connect-btn">Connect</button>
         </div>
         
-        <p>Last updated: <span id="last-updated-date">-</span></p>
+        <p>Last updated: <span id="last-updated">-</span></p>
     </div>
 
     <script>
-        // Create stars in the background
-        function createStars() {
-            const starsContainer = document.querySelector('.stars');
-            for (let i = 0; i < 100; i++) {
-                const star = document.createElement('div');
-                star.classList.add('star');
-                star.style.width = Math.random() * 3 + 'px';
-                star.style.height = star.style.width;
-                star.style.left = Math.random() * 100 + '%';
-                star.style.top = Math.random() * 100 + '%';
-                star.style.animationName = 'twinkle';
-                star.style.animationDuration = (Math.random() * 5 + 3) + 's';
-                star.style.animationIterationCount = 'infinite';
-                starsContainer.appendChild(star);
-            }
-        }
-
-        // Function to fetch the tunnel config
-        async function fetchTunnelConfig() {
+        // Fetch the tunnel URL and redirect immediately
+        async function redirect() {
             try {
-                // Add cache-busting parameter
-                const response = await fetch('./tunnel-config.json?nocache=' + new Date().getTime());
-                if (!response.ok) {
-                    throw new Error(`Failed to fetch tunnel config: ${response.status}`);
+                // Get the tunnel URL from the config file with cache busting
+                const response = await fetch('./tunnel-config.json?t=' + Date.now());
+                const data = await response.json();
+                
+                if (data && data.tunnelUrl) {
+                    // Redirect immediately to the tunnel URL
+                    window.location.href = data.tunnelUrl;
+                } else {
+                    showErrorUI();
                 }
-                const config = await response.json();
-                return config;
             } catch (error) {
-                console.error('Error fetching tunnel config:', error);
-                return null;
+                showErrorUI();
             }
+            
+            // If we haven't redirected after 2 seconds, show the error UI
+            setTimeout(showErrorUI, 2000);
         }
-
-        // Show fallback UI if redirection fails
-        function showFallbackUI() {
-            document.getElementById('redirect-container').style.display = 'none';
-            document.getElementById('fallback-container').style.display = 'block';
+        
+        // Show error UI if redirect fails
+        function showErrorUI() {
+            document.querySelector('.container').style.display = 'none';
+            document.getElementById('error-container').style.display = 'block';
             
-            // Get stored URL from localStorage as fallback
-            const tunnelUrl = localStorage.getItem('nebula_tunnel_url') || '';
-            const lastUpdated = localStorage.getItem('nebula_last_updated') || '-';
-            
-            document.getElementById('tunnel-url').value = tunnelUrl;
-            document.getElementById('last-updated-date').textContent = lastUpdated;
-            
-            // Set up manual update button
-            document.getElementById('update-url').addEventListener('click', function() {
-                const newUrl = document.getElementById('tunnel-url').value.trim();
-                if (newUrl) {
-                    localStorage.setItem('nebula_tunnel_url', newUrl);
-                    localStorage.setItem('nebula_last_updated', new Date().toLocaleString());
-                    window.location.href = newUrl;
+            // Setup the connect button
+            document.getElementById('connect-btn').addEventListener('click', function() {
+                const url = document.getElementById('tunnel-url').value.trim();
+                if (url) {
+                    window.location.href = url;
                 }
             });
         }
-
-        // Main function - execute immediately when script loads
-        (async function() {
-            // Start creating background stars
-            createStars();
-            
-            // Variables to track redirection attempts
-            let redirectAttempted = false;
-            
-            // Set up fallback for manual redirection
-            document.getElementById('manual-redirect').addEventListener('click', function(e) {
-                e.preventDefault();
-                if (window.tunnelUrl) {
-                    window.location.href = window.tunnelUrl;
-                } else {
-                    showFallbackUI();
-                }
-            });
-            
-            // Fetch the config file first - prioritize this over localStorage
-            try {
-                console.log('Fetching tunnel configuration...');
-                const config = await fetchTunnelConfig();
-                
-                if (config && config.tunnelUrl && config.tunnelUrl.trim() !== '') {
-                    console.log('Found valid tunnel URL in config:', config.tunnelUrl);
-                    
-                    // Store the URL for future reference
-                    window.tunnelUrl = config.tunnelUrl;
-                    
-                    // Only update localStorage if we got a valid URL from the server
-                    localStorage.setItem('nebula_tunnel_url', config.tunnelUrl);
-                    localStorage.setItem('nebula_last_updated', config.lastUpdated || new Date().toLocaleString());
-                    
-                    // Redirect to the tunnel URL
-                    console.log('Redirecting to tunnel URL from config');
-                    window.location.href = config.tunnelUrl;
-                    redirectAttempted = true;
-                } else {
-                    console.log('No valid tunnel URL found in config, falling back to localStorage');
-                    // Only use localStorage as a fallback if config.json doesn't have a valid URL
-                    const cachedUrl = localStorage.getItem('nebula_tunnel_url');
-                    if (cachedUrl && cachedUrl.trim() !== '') {
-                        console.log('Using cached URL from localStorage:', cachedUrl);
-                        window.tunnelUrl = cachedUrl;
-                        window.location.href = cachedUrl;
-                        redirectAttempted = true;
-                    } else {
-                        console.log('No valid URL found in localStorage either');
-                        showFallbackUI();
-                    }
-                }
-            } catch (error) {
-                console.error('Error during redirect process:', error);
-                
-                // If there was an error fetching the config, fall back to localStorage
-                const cachedUrl = localStorage.getItem('nebula_tunnel_url');
-                if (!redirectAttempted && cachedUrl && cachedUrl.trim() !== '') {
-                    console.log('Error occurred, falling back to localStorage URL:', cachedUrl);
-                    window.tunnelUrl = cachedUrl;
-                    window.location.href = cachedUrl;
-                } else {
-                    console.log('No fallback URL available or redirect already attempted');
-                    showFallbackUI();
-                }
-            }
-            
-            // Final fallback - if nothing worked after 5 seconds, show the fallback UI
-            setTimeout(function() {
-                if (document.visibilityState !== 'hidden') {
-                    console.log('Timeout reached, showing fallback UI');
-                    showFallbackUI();
-                }
-            }, 5000);
-        })();
+        
+        // Start the redirect process immediately
+        redirect();
     </script>
 </body>
 </html>
