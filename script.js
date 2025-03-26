@@ -3134,12 +3134,12 @@ function createRedPlanet(trackRadius) {
 
 // Create Vibeverse portal
 function createVibeVersePortal(trackRadius) {
-    // Position the portal outside the track
-    const portalDistance = trackRadius * 1.5; // 50% outside track radius
+    // Position the portal outside the track - increased to 3.0 times the track radius
+    const portalDistance = trackRadius * 3.0;
     const portalAngle = Math.PI / 4; // 45 degrees position
     const portalX = Math.cos(portalAngle) * portalDistance;
     const portalZ = Math.sin(portalAngle) * portalDistance;
-    const portalY = 5; // Height off ground
+    const portalY = 1; // Lowered to player level (was 5)
     
     // Create portal group
     const portalGroup = new THREE.Group();
@@ -3241,19 +3241,19 @@ function createPortalLabel(portalGroup, text) {
     const material = new THREE.SpriteMaterial({ map: texture });
     const sprite = new THREE.Sprite(material);
     sprite.scale.set(10, 2.5, 1);
-    sprite.position.set(0, 8, 0); // Position above portal
+    sprite.position.set(0, 6, 0); // Adjusted position (was 8)
     
     portalGroup.add(sprite);
 }
 
 // Create return portal for players coming from another game
 function createReturnPortal(trackRadius, referrerUrl) {
-    // Position the return portal opposite to the main portal
-    const portalDistance = trackRadius * 1.5;
+    // Position the return portal opposite to the main portal - increased to 3.0 times the track radius
+    const portalDistance = trackRadius * 3.0;
     const portalAngle = Math.PI * 5 / 4; // Opposite angle (225 degrees)
     const portalX = Math.cos(portalAngle) * portalDistance;
     const portalZ = Math.sin(portalAngle) * portalDistance;
-    const portalY = 5;
+    const portalY = 1; // Lowered to player level (was 5)
     
     // Create portal group
     const portalGroup = new THREE.Group();
