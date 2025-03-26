@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nebula Racers - Play Now!</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            background-color: #121212;
+            color: #ffffff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            padding: 0;
+            background-image: 
+                radial-gradient(circle at 25% 25%, rgba(50, 50, 255, 0.2) 0%, transparent 50%),
+                radial-gradient(circle at 75% 75%, rgba(255, 50, 50, 0.2) 0%, transparent 50%);
+            overflow: hidden;
+        }
+        .container {
+            text-align: center;
+            padding: 2rem;
+            background-color: rgba(0, 0, 0, 0.7);
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            max-width: 800px;
+            width: 90%;
+        }
+        h1 {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+            background: linear-gradient(to right, #4fd1c5, #63b3ed);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+        p {
+            font-size: 1.2rem;
+            margin-bottom: 2rem;
+            line-height: 1.6;
+        }
+        .play-button {
+            display: inline-block;
+            background: linear-gradient(45deg, #4fd1c5, #63b3ed);
+            color: white;
+            font-size: 1.5rem;
+            font-weight: bold;
+            text-decoration: none;
+            padding: 1rem 2rem;
+            border-radius: 50px;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(79, 209, 197, 0.3);
+        }
+        .play-button:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 20px rgba(79, 209, 197, 0.4);
+        }
+        .last-updated {
+            margin-top: 2rem;
+            font-size: 0.9rem;
+            opacity: 0.7;
+        }
+        .stars {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+        }
+        @keyframes twinkle {
+            0% {opacity: 0.3;}
+            50% {opacity: 1;}
+            100% {opacity: 0.3;}
+        }
+        .star {
+            position: absolute;
+            background-color: white;
+            border-radius: 50%;
+        }
+        .url-input {
+            margin-top: 2rem;
+            width: 100%;
+            max-width: 500px;
+        }
+        .url-input input {
+            width: 70%;
+            padding: 0.5rem;
+            border-radius: 4px;
+            border: 1px solid #63b3ed;
+            background-color: rgba(0, 0, 0, 0.3);
+            color: white;
+        }
+        .url-input button {
+            padding: 0.5rem 1rem;
+            background: linear-gradient(45deg, #4fd1c5, #63b3ed);
+            border: none;
+            border-radius: 4px;
+            color: white;
+            cursor: pointer;
+            margin-left: 10px;
+        }
+        #offline-message {
+            color: #ff6b6b;
+            margin-top: 1rem;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="stars" id="stars"></div>
+    <div class="container">
+        <h1>Nebula Racers</h1>
+        <p>A fast-paced, multiplayer space racing game built with Three.js. Race against your friends through space!</p>
+        <a href="#" id="play-button" class="play-button">Play Now</a>
+        <p id="offline-message">The game server appears to be offline. Please try again later or enter a new tunnel URL below.</p>
+        
+        <div class="url-input">
+            <input type="text" id="tunnel-url" placeholder="Enter new Cloudflare tunnel URL">
+            <button id="update-url">Update</button>
+        </div>
+        
+        <p class="last-updated">Last updated: <span id="last-updated-date">-</span></p>
+    </div>
+
+    <script>
+        // Create stars in the background
+        document.addEventListener('DOMContentLoaded', function() {
+            const starsContainer = document.getElementById('stars');
+            for (let i = 0; i < 100; i++) {
+                const star = document.createElement('div');
+                star.classList.add('star');
+                star.style.width = Math.random() * 3 + 'px';
+                star.style.height = star.style.width;
+                star.style.left = Math.random() * 100 + '%';
+                star.style.top = Math.random() * 100 + '%';
+                star.style.animationName = 'twinkle';
+                star.style.animationDuration = (Math.random() * 5 + 3) + 's';
+                star.style.animationIterationCount = 'infinite';
+                starsContainer.appendChild(star);
+            }
+            
+            // Get the last URL from localStorage or use a default
+            let tunnelUrl = localStorage.getItem('nebula_tunnel_url') || '';
+            const playButton = document.getElementById('play-button');
+            const urlInput = document.getElementById('tunnel-url');
+            const offlineMessage = document.getElementById('offline-message');
+            const lastUpdatedDate = document.getElementById('last-updated-date');
+            
+            // Set the input field to the current URL
+            urlInput.value = tunnelUrl;
+            
+            // Update last updated date
+            const lastUpdated = localStorage.getItem('nebula_last_updated') || new Date().toLocaleString();
+            lastUpdatedDate.textContent = lastUpdated;
+            
+            // Check if we have a valid URL
+            if (!tunnelUrl) {
+                offlineMessage.style.display = 'block';
+                offlineMessage.textContent = 'Please enter a Cloudflare tunnel URL below to start playing.';
+            }
+            
+            // Handle play button click
+            playButton.addEventListener('click', function(e) {
+                e.preventDefault();
+                if (!tunnelUrl) {
+                    offlineMessage.style.display = 'block';
+                    return;
+                }
+                
+                playButton.textContent = 'Launching...';
+                
+                // Check if the URL is reachable
+                const img = new Image();
+                let timedOut = false;
+                
+                const timeout = setTimeout(function() {
+                    timedOut = true;
+                    offlineMessage.style.display = 'block';
+                    playButton.textContent = 'Play Now';
+                }, 5000);
+                
+                img.onload = function() {
+                    if (!timedOut) {
+                        clearTimeout(timeout);
+                        window.location.href = tunnelUrl;
+                    }
+                };
+                
+                img.onerror = function() {
+                    if (!timedOut) {
+                        clearTimeout(timeout);
+                        offlineMessage.style.display = 'block';
+                        playButton.textContent = 'Play Now';
+                    }
+                };
+                
+                img.src = tunnelUrl + '/favicon.ico';
+                
+                setTimeout(function() {
+                    window.location.href = tunnelUrl;
+                }, 500);
+            });
+            
+            // Handle URL update
+            document.getElementById('update-url').addEventListener('click', function() {
+                const newUrl = urlInput.value.trim();
+                if (newUrl) {
+                    tunnelUrl = newUrl;
+                    localStorage.setItem('nebula_tunnel_url', tunnelUrl);
+                    localStorage.setItem('nebula_last_updated', new Date().toLocaleString());
+                    lastUpdatedDate.textContent = new Date().toLocaleString();
+                    offlineMessage.style.display = 'none';
+                    alert('Tunnel URL updated successfully!');
+                }
+            });
+        });
+    </script>
+</body>
+</html>
