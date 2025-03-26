@@ -930,6 +930,11 @@ function restartRace() {
     game.speed = 0;
     game.boostAmount = 0;
     
+    // Disconnect from the server if we're in multiplayer mode
+    if (game.multiplayer && game.isConnected) {
+        disconnectFromServer();
+    }
+    
     // Update connection status for menu display
     updateConnectionStatus();
     
@@ -2376,6 +2381,9 @@ function resetRaceToStart() {
     // Position ship at starting line
     positionShipAtStart();
     
+    // Reset AI players to starting line
+    resetAIPlayers();
+    
     // Clear boosts
     game.boostAmount = 100;
     updateBoostMeter();
@@ -2615,6 +2623,9 @@ function resetLocalRaceToStart() {
     // Position ship at starting line
     positionShipAtStart();
     
+    // Reset AI players to starting line
+    resetAIPlayers();
+    
     // Clear boosts
     game.boostAmount = 100;
     updateBoostMeter();
@@ -2633,3 +2644,122 @@ function resetLocalRaceToStart() {
 
 // Initialize the game
 init(); 
+
+// Reset AI players to the starting line
+function resetAIPlayers() {
+    // Calculate lane width within the track
+    const laneWidth = game.trackWidth / 8; // 8 total racers (7 AI + player)
+    
+    // Get the number of AI players
+    const aiPlayers = Object.keys(game.players).filter(id => id.startsWith('ai-'));
+    
+    // Create an array of all lanes (1-8)
+    let availableLanes = [1, 2, 3, 4, 5, 6, 7, 8];
+    
+    // Remove player's lane from available lanes
+    if (game.playerLane) {
+        availableLanes = availableLanes.filter(lane => lane !== game.playerLane);
+    }
+    
+    // Shuffle available lanes to randomize AI positions
+    availableLanes = shuffleArray(availableLanes);
+    
+    // Reset each AI player
+    aiPlayers.forEach((id, index) => {
+        const player = game.players[id];
+        if (!player || !player.mesh) return;
+        
+        // Reset AI progress and lap count
+        player.progress = 0;
+        player.lastProgress = 0;
+        player.lap = 0;
+        
+        // Assign a lane (ensuring no collisions at start)
+        const laneIndex = availableLanes[index % availableLanes.length];
+        player.lane = laneIndex;
+        
+        // Calculate proper radial offset for the lane
+        const innerRadius = game.track.radius - game.trackWidth / 2;
+        const radialOffset = innerRadius + (laneIndex - 0.5) * laneWidth;
+        
+        // Get the starting point and tangent
+        const startPoint = game.track.curve.getPoint(0);
+        const tangent = game.track.curve.getTangent(0);
+        
+        // Calculate direction vector from center to start point
+        const centerToEdge = new THREE.Vector2(startPoint.x, startPoint.y).normalize();
+        
+        // Set position with proper radial offset
+        player.mesh.position.set(
+            centerToEdge.x * radialOffset,
+            1, 
+            centerToEdge.y * radialOffset
+        );
+        
+        // Set the orientation using the tangent
+        const direction = new THREE.Vector3(tangent.x, 0, tangent.y);
+        direction.normalize();
+        
+        const target = new THREE.Vector3(
+            player.mesh.position.x + direction.x,
+            player.mesh.position.y,
+            player.mesh.position.z + direction.z
+        );
+        player.mesh.lookAt(target);
+        
+        // Reset AI boost and boost effect
+        player.boostAmount = 100;
+        player.boosting = false;
+        player.boostCooldown = 0;
+        
+        if (player.boostEffect) {
+            player.boostEffect.visible = false;
+        }
+    });
+}
+
+// Helper function to shuffle an array (Fisher-Yates algorithm)
+function shuffleArray(array) {
+    const newArray = [...array];
+    for (let i = newArray.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [newArray[i], newArray[j]] = [newArray[j], newArray[i]];
+    }
+    return newArray;
+}
+
+// Disconnect from the multiplayer server
+function disconnectFromServer() {
+    if (game.socket && game.isConnected) {
+        console.log('Manually disconnecting from server');
+        
+        // Close the socket connection
+        game.socket.disconnect();
+        
+        // Reset connection state
+        game.socket = null;
+        game.id = null;
+        game.isConnected = false;
+        game.connectionState = 'disconnected';
+        
+        // Clear any multiplayer players
+        Object.keys(game.multiplayerPlayers).forEach(id => {
+            removeMultiplayerPlayer(id);
+        });
+        
+        // Reset multiplayer players collection
+        game.multiplayerPlayers = {};
+        
+        // Update the connection status display
+        updateConnectionStatus();
+        
+        // Reset the multiplayer toggle UI if we're in the menu
+        if (!game.racing) {
+            const multiplayerToggle = document.getElementById('multiplayer-toggle');
+            if (multiplayerToggle) {
+                multiplayerToggle.checked = false;
+                game.multiplayer = false;
+            }
+        }
+    }
+}
