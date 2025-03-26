@@ -53,12 +53,17 @@ if [ -z "$TUNNEL_URL" ]; then
 else
     echo "Found tunnel URL: $TUNNEL_URL"
     
-    # Update the tunnel URL in a local config file
-    echo '{"tunnelUrl":"'"$TUNNEL_URL"'","lastUpdated":"'"$(date)"'"}' > ./docs/tunnel-config.json
-    
     # Try to push to GitHub if git is available and we're in a git repository
     if command -v git &> /dev/null && git rev-parse --is-inside-work-tree &> /dev/null; then
         echo "Attempting to automatically push updated tunnel URL to GitHub..."
+        
+        # Reset local repository to match remote main branch
+        echo "Resetting local repository to match remote main branch..."
+        git reset --hard origin/main
+        
+        # Update the tunnel URL file after reset
+        echo '{"tunnelUrl":"'"$TUNNEL_URL"'","lastUpdated":"'"$(date)"'"}' > ./docs/tunnel-config.json
+        
         if git add ./docs/tunnel-config.json && git commit -m "Update tunnel URL: $TUNNEL_URL" && git push; then
             echo "Successfully pushed tunnel URL to GitHub!"
             echo "GitHub Pages will automatically update in a few minutes."
