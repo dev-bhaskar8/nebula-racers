@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Nebula Racers - Play Now!</title>
+    <title>Nebula Racers - Redirecting...</title>
     <style>
         body {
             font-family: 'Arial', sans-serif;
@@ -61,32 +61,10 @@
             transform: translateY(-5px);
             box-shadow: 0 10px 20px rgba(79, 209, 197, 0.4);
         }
-        .last-updated {
-            margin-top: 2rem;
-            font-size: 0.9rem;
-            opacity: 0.7;
-        }
-        .stars {
-            position: absolute;
-            width: 100%;
-            height: 100%;
-            z-index: -1;
-        }
-        @keyframes twinkle {
-            0% {opacity: 0.3;}
-            50% {opacity: 1;}
-            100% {opacity: 0.3;}
-        }
-        .star {
-            position: absolute;
-            background-color: white;
-            border-radius: 50%;
-        }
         .url-input {
             margin-top: 2rem;
             width: 100%;
             max-width: 500px;
-            display: none; /* Hide by default, only show when server is offline */
         }
         .url-input input {
             width: 70%;
@@ -105,10 +83,21 @@
             cursor: pointer;
             margin-left: 10px;
         }
-        #offline-message {
-            color: #ff6b6b;
-            margin-top: 1rem;
-            display: none;
+        .stars {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+        }
+        @keyframes twinkle {
+            0% {opacity: 0.3;}
+            50% {opacity: 1;}
+            100% {opacity: 0.3;}
+        }
+        .star {
+            position: absolute;
+            background-color: white;
+            border-radius: 50%;
         }
         .loading {
             display: inline-block;
@@ -124,37 +113,44 @@
         @keyframes spin {
             to { transform: rotate(360deg); }
         }
-        #status-message {
-            margin-top: 1rem;
-            font-style: italic;
+        #redirect-message {
             opacity: 0.8;
+        }
+        .hidden {
+            display: none;
+        }
+        #fallback-container {
+            display: none;
         }
     </style>
 </head>
 <body>
     <div class="stars" id="stars"></div>
-    <div class="container">
+    <div class="container" id="redirect-container">
         <h1>Nebula Racers</h1>
-        <p>A fast-paced, multiplayer space racing game built with Three.js. Race against your friends through space!</p>
-        <a href="#" id="play-button" class="play-button">
-            <span id="loading-indicator" class="loading"></span>
-            <span id="button-text">Connecting...</span>
-        </a>
-        <p id="status-message">Looking for latest tunnel URL...</p>
-        <p id="offline-message">The game server appears to be offline. Please try again later or enter a new tunnel URL below.</p>
+        <p>Redirecting to game server...</p>
+        <div class="loading"></div>
+        <p id="redirect-message">If you are not redirected automatically, <a href="#" id="manual-redirect">click here</a>.</p>
+    </div>
+    
+    <!-- Fallback UI if redirection fails -->
+    <div class="container hidden" id="fallback-container">
+        <h1>Nebula Racers</h1>
+        <p>A fast-paced, multiplayer space racing game built with Three.js</p>
+        <p id="error-message">The server appears to be offline. Please try again later or enter a new tunnel URL below.</p>
         
-        <div class="url-input" id="url-input">
-            <input type="text" id="tunnel-url" placeholder="Enter new Cloudflare tunnel URL">
-            <button id="update-url">Update</button>
+        <div class="url-input">
+            <input type="text" id="tunnel-url" placeholder="Enter Cloudflare tunnel URL">
+            <button id="update-url">Connect</button>
         </div>
         
-        <p class="last-updated">Last updated: <span id="last-updated-date">-</span></p>
+        <p>Last updated: <span id="last-updated-date">-</span></p>
     </div>
 
     <script>
         // Create stars in the background
-        document.addEventListener('DOMContentLoaded', function() {
-            const starsContainer = document.getElementById('stars');
+        function createStars() {
+            const starsContainer = document.querySelector('.stars');
             for (let i = 0; i < 100; i++) {
                 const star = document.createElement('div');
                 star.classList.add('star');
@@ -167,141 +163,115 @@
                 star.style.animationIterationCount = 'infinite';
                 starsContainer.appendChild(star);
             }
-            
-            // Initialize elements
-            const playButton = document.getElementById('play-button');
-            const buttonText = document.getElementById('button-text');
-            const loadingIndicator = document.getElementById('loading-indicator');
-            const urlInput = document.getElementById('tunnel-url');
-            const urlInputContainer = document.getElementById('url-input');
-            const offlineMessage = document.getElementById('offline-message');
-            const lastUpdatedDate = document.getElementById('last-updated-date');
-            const statusMessage = document.getElementById('status-message');
-            
-            // Function to fetch the tunnel config
-            async function fetchTunnelConfig() {
-                try {
-                    // Try to fetch the config file with a cache-busting parameter
-                    const response = await fetch('./tunnel-config.json?nocache=' + new Date().getTime());
-                    if (!response.ok) {
-                        throw new Error(`Failed to fetch tunnel config: ${response.status}`);
-                    }
-                    
-                    const config = await response.json();
-                    return config;
-                } catch (error) {
-                    console.error('Error fetching tunnel config:', error);
-                    return null;
+        }
+
+        // Function to fetch the tunnel config
+        async function fetchTunnelConfig() {
+            try {
+                // Add cache-busting parameter
+                const response = await fetch('./tunnel-config.json?nocache=' + new Date().getTime());
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch tunnel config: ${response.status}`);
                 }
+                const config = await response.json();
+                return config;
+            } catch (error) {
+                console.error('Error fetching tunnel config:', error);
+                return null;
             }
+        }
+
+        // Show fallback UI if redirection fails
+        function showFallbackUI() {
+            document.getElementById('redirect-container').style.display = 'none';
+            document.getElementById('fallback-container').style.display = 'block';
             
-            // Function to check if a URL is reachable
-            async function isUrlReachable(url) {
-                try {
-                    const controller = new AbortController();
-                    const timeoutId = setTimeout(() => controller.abort(), 5000);
-                    
-                    const response = await fetch(url, { 
-                        mode: 'no-cors',
-                        signal: controller.signal
-                    });
-                    
-                    clearTimeout(timeoutId);
-                    return true;
-                } catch (error) {
-                    console.error(`Error checking URL ${url}:`, error);
-                    return false;
-                }
-            }
+            // Get stored URL from localStorage as fallback
+            const tunnelUrl = localStorage.getItem('nebula_tunnel_url') || '';
+            const lastUpdated = localStorage.getItem('nebula_last_updated') || '-';
             
-            // Initialize the page
-            async function initPage() {
-                // Get the stored URL from localStorage (as fallback)
-                let tunnelUrl = localStorage.getItem('nebula_tunnel_url') || '';
-                let configLastUpdated = localStorage.getItem('nebula_last_updated') || '-';
-                
-                // Try to get the tunnel URL from the config file first
-                statusMessage.textContent = "Fetching latest tunnel URL...";
-                const config = await fetchTunnelConfig();
-                
-                if (config && config.tunnelUrl) {
-                    tunnelUrl = config.tunnelUrl;
-                    configLastUpdated = config.lastUpdated;
-                    
-                    // Store in localStorage as backup
-                    localStorage.setItem('nebula_tunnel_url', tunnelUrl);
-                    localStorage.setItem('nebula_last_updated', configLastUpdated);
-                    
-                    statusMessage.textContent = "Tunnel URL found! Checking if server is online...";
-                } else {
-                    statusMessage.textContent = "Could not fetch latest tunnel URL. Using cached value if available.";
-                }
-                
-                // Update the UI with what we found
-                urlInput.value = tunnelUrl;
-                lastUpdatedDate.textContent = configLastUpdated;
-                
-                // Check if we have a URL and if it's reachable
-                if (!tunnelUrl) {
-                    // No URL at all - show the manual input
-                    buttonText.textContent = "Play Now";
-                    loadingIndicator.style.display = 'none';
-                    offlineMessage.style.display = 'block';
-                    offlineMessage.textContent = 'Please enter a Cloudflare tunnel URL below to start playing.';
-                    urlInputContainer.style.display = 'block';
-                    statusMessage.textContent = "No tunnel URL found. Please enter one manually.";
-                    return;
-                }
-                
-                // We have a URL, check if it's reachable
-                const isReachable = await isUrlReachable(tunnelUrl);
-                
-                if (isReachable) {
-                    // URL is reachable, ready to play!
-                    buttonText.textContent = "Play Now";
-                    loadingIndicator.style.display = 'none';
-                    offlineMessage.style.display = 'none';
-                    statusMessage.textContent = "Server is online! Click 'Play Now' to start.";
-                    
-                    // Set the button to redirect to the game
-                    playButton.onclick = function(e) {
-                        e.preventDefault();
-                        buttonText.textContent = "Launching...";
-                        window.location.href = tunnelUrl;
-                    };
-                } else {
-                    // URL is not reachable, show offline message
-                    buttonText.textContent = "Server Offline";
-                    loadingIndicator.style.display = 'none';
-                    offlineMessage.style.display = 'block';
-                    urlInputContainer.style.display = 'block';
-                    statusMessage.textContent = "Server appears to be offline. You can try entering a new URL.";
-                }
-            }
+            document.getElementById('tunnel-url').value = tunnelUrl;
+            document.getElementById('last-updated-date').textContent = lastUpdated;
             
-            // Initialize the page
-            initPage();
-            
-            // Handle URL update button
+            // Set up manual update button
             document.getElementById('update-url').addEventListener('click', function() {
-                const newUrl = urlInput.value.trim();
+                const newUrl = document.getElementById('tunnel-url').value.trim();
                 if (newUrl) {
                     localStorage.setItem('nebula_tunnel_url', newUrl);
                     localStorage.setItem('nebula_last_updated', new Date().toLocaleString());
-                    lastUpdatedDate.textContent = new Date().toLocaleString();
-                    offlineMessage.style.display = 'none';
-                    
-                    // Redirect to the new URL
-                    buttonText.textContent = "Launching...";
-                    setTimeout(() => {
-                        window.location.href = newUrl;
-                    }, 500);
+                    window.location.href = newUrl;
+                }
+            });
+        }
+
+        // Main function - execute immediately when script loads
+        (async function() {
+            // Start creating background stars
+            createStars();
+            
+            // Variables to track redirection attempts
+            let redirectTimeout;
+            let redirectAttempted = false;
+            
+            // Set up fallback for manual redirection
+            document.getElementById('manual-redirect').addEventListener('click', function(e) {
+                e.preventDefault();
+                if (window.tunnelUrl) {
+                    window.location.href = window.tunnelUrl;
+                } else {
+                    showFallbackUI();
                 }
             });
             
-            // Check for updates every 30 seconds
-            setInterval(initPage, 30000);
-        });
+            // Try to redirect immediately - first check local storage for a cached URL
+            const cachedUrl = localStorage.getItem('nebula_tunnel_url');
+            if (cachedUrl) {
+                // Use cached URL for immediate redirection
+                console.log('Using cached URL for immediate redirection:', cachedUrl);
+                window.tunnelUrl = cachedUrl;
+                window.location.href = cachedUrl;
+                redirectAttempted = true;
+                
+                // Set a fallback timeout in case the redirect doesn't work
+                redirectTimeout = setTimeout(showFallbackUI, 3000);
+            }
+            
+            // Simultaneously, fetch the latest config
+            try {
+                const config = await fetchTunnelConfig();
+                
+                if (config && config.tunnelUrl) {
+                    // Clear any existing timeout
+                    if (redirectTimeout) clearTimeout(redirectTimeout);
+                    
+                    // Store the URL for future use
+                    window.tunnelUrl = config.tunnelUrl;
+                    localStorage.setItem('nebula_tunnel_url', config.tunnelUrl);
+                    localStorage.setItem('nebula_last_updated', config.lastUpdated);
+                    
+                    // If we didn't already redirect (using cached URL), do it now
+                    if (!redirectAttempted) {
+                        console.log('Redirecting to latest URL:', config.tunnelUrl);
+                        window.location.href = config.tunnelUrl;
+                    }
+                } else if (!redirectAttempted) {
+                    // If no config found and we didn't already try to redirect with cached URL
+                    showFallbackUI();
+                }
+            } catch (error) {
+                console.error('Error in redirection:', error);
+                if (!redirectAttempted) {
+                    showFallbackUI();
+                }
+            }
+            
+            // Final fallback - if nothing worked after 5 seconds, show the fallback UI
+            setTimeout(function() {
+                if (document.visibilityState !== 'hidden') {
+                    showFallbackUI();
+                }
+            }, 5000);
+        })();
     </script>
 </body>
 </html>
