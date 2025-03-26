@@ -210,7 +210,6 @@
             createStars();
             
             // Variables to track redirection attempts
-            let redirectTimeout;
             let redirectAttempted = false;
             
             // Set up fallback for manual redirection
@@ -223,44 +222,50 @@
                 }
             });
             
-            // Try to redirect immediately - first check local storage for a cached URL
-            const cachedUrl = localStorage.getItem('nebula_tunnel_url');
-            if (cachedUrl) {
-                // Use cached URL for immediate redirection
-                console.log('Using cached URL for immediate redirection:', cachedUrl);
-                window.tunnelUrl = cachedUrl;
-                window.location.href = cachedUrl;
-                redirectAttempted = true;
-                
-                // Set a fallback timeout in case the redirect doesn't work
-                redirectTimeout = setTimeout(showFallbackUI, 3000);
-            }
-            
-            // Simultaneously, fetch the latest config
+            // Fetch the config file first - prioritize this over localStorage
             try {
+                console.log('Fetching tunnel configuration...');
                 const config = await fetchTunnelConfig();
                 
-                if (config && config.tunnelUrl) {
-                    // Clear any existing timeout
-                    if (redirectTimeout) clearTimeout(redirectTimeout);
+                if (config && config.tunnelUrl && config.tunnelUrl.trim() !== '') {
+                    console.log('Found valid tunnel URL in config:', config.tunnelUrl);
                     
-                    // Store the URL for future use
+                    // Store the URL for future reference
                     window.tunnelUrl = config.tunnelUrl;
-                    localStorage.setItem('nebula_tunnel_url', config.tunnelUrl);
-                    localStorage.setItem('nebula_last_updated', config.lastUpdated);
                     
-                    // If we didn't already redirect (using cached URL), do it now
-                    if (!redirectAttempted) {
-                        console.log('Redirecting to latest URL:', config.tunnelUrl);
-                        window.location.href = config.tunnelUrl;
+                    // Only update localStorage if we got a valid URL from the server
+                    localStorage.setItem('nebula_tunnel_url', config.tunnelUrl);
+                    localStorage.setItem('nebula_last_updated', config.lastUpdated || new Date().toLocaleString());
+                    
+                    // Redirect to the tunnel URL
+                    console.log('Redirecting to tunnel URL from config');
+                    window.location.href = config.tunnelUrl;
+                    redirectAttempted = true;
+                } else {
+                    console.log('No valid tunnel URL found in config, falling back to localStorage');
+                    // Only use localStorage as a fallback if config.json doesn't have a valid URL
+                    const cachedUrl = localStorage.getItem('nebula_tunnel_url');
+                    if (cachedUrl && cachedUrl.trim() !== '') {
+                        console.log('Using cached URL from localStorage:', cachedUrl);
+                        window.tunnelUrl = cachedUrl;
+                        window.location.href = cachedUrl;
+                        redirectAttempted = true;
+                    } else {
+                        console.log('No valid URL found in localStorage either');
+                        showFallbackUI();
                     }
-                } else if (!redirectAttempted) {
-                    // If no config found and we didn't already try to redirect with cached URL
-                    showFallbackUI();
                 }
             } catch (error) {
-                console.error('Error in redirection:', error);
-                if (!redirectAttempted) {
+                console.error('Error during redirect process:', error);
+                
+                // If there was an error fetching the config, fall back to localStorage
+                const cachedUrl = localStorage.getItem('nebula_tunnel_url');
+                if (!redirectAttempted && cachedUrl && cachedUrl.trim() !== '') {
+                    console.log('Error occurred, falling back to localStorage URL:', cachedUrl);
+                    window.tunnelUrl = cachedUrl;
+                    window.location.href = cachedUrl;
+                } else {
+                    console.log('No fallback URL available or redirect already attempted');
                     showFallbackUI();
                 }
             }
@@ -268,6 +273,7 @@
             // Final fallback - if nothing worked after 5 seconds, show the fallback UI
             setTimeout(function() {
                 if (document.visibilityState !== 'hidden') {
+                    console.log('Timeout reached, showing fallback UI');
                     showFallbackUI();
                 }
             }, 5000);
