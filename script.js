@@ -94,7 +94,18 @@ function init() {
     // Check if player is coming from a portal
     const urlParams = new URLSearchParams(window.location.search);
     game.comingFromPortal = urlParams.get('portal') === 'true';
-    game.referrerUrl = urlParams.get('ref') || '';
+    
+    // Get and properly decode the referrer URL
+    const refParam = urlParams.get('ref') || '';
+    try {
+        // Double decode to handle cases where the URL might be encoded twice
+        game.referrerUrl = decodeURIComponent(decodeURIComponent(refParam));
+        console.log("Referrer URL set to:", game.referrerUrl);
+    } catch (e) {
+        // Fallback in case of malformed URI
+        game.referrerUrl = refParam;
+        console.log("Using fallback referrer URL:", game.referrerUrl);
+    }
     
     // Get player info from URL if coming from portal
     if (game.comingFromPortal) {
@@ -3280,12 +3291,12 @@ function createPortalLabel(portalGroup, text) {
 
 // Create return portal for players coming from another game
 function createReturnPortal(trackRadius, referrerUrl) {
-    // Position the return portal opposite to the main portal - set to 2.0 times the track radius
+    // Position the return portal next to the main portal instead of opposite
     const portalDistance = trackRadius * 2.0;
-    const portalAngle = Math.PI * 5 / 4; // Opposite angle (225 degrees)
+    const portalAngle = Math.PI / 4 + Math.PI / 12; // Slightly offset from main portal (45 degrees + 15 degrees)
     const portalX = Math.cos(portalAngle) * portalDistance;
     const portalZ = Math.sin(portalAngle) * portalDistance;
-    const portalY = 1; // Lowered to player level (was 5)
+    const portalY = 1; // Lowered to player level
     
     // Create portal group
     const portalGroup = new THREE.Group();
@@ -3304,7 +3315,6 @@ function createReturnPortal(trackRadius, referrerUrl) {
         roughness: 0.3
     });
     const ring = new THREE.Mesh(ringGeometry, ringMaterial);
-    // No need to rotate the ring, as the parent group handles orientation
     portalGroup.add(ring);
     
     const diskGeometry = new THREE.CircleGeometry(4.5, 32);
@@ -3315,7 +3325,6 @@ function createReturnPortal(trackRadius, referrerUrl) {
         side: THREE.DoubleSide
     });
     const disk = new THREE.Mesh(diskGeometry, diskMaterial);
-    // No need to rotate the disk, as the parent group handles orientation
     portalGroup.add(disk);
     
     // Add portal particles
@@ -3355,7 +3364,7 @@ function createReturnPortal(trackRadius, referrerUrl) {
         ring: ring,
         disk: disk,
         particles: particles,
-        url: referrerUrl
+        url: decodeURIComponent(referrerUrl) // Ensure URL is properly decoded
     };
     
     // Add to scene
@@ -3378,10 +3387,12 @@ function redirectToVibeVersePortal() {
     params.append('username', username);
     params.append('color', color);
     params.append('speed', speed);
-    params.append('ref', refUrl);
+    params.append('portal', 'true'); // Add portal flag
+    params.append('ref', encodeURIComponent(refUrl)); // Ensure proper encoding of the referrer URL
     
     // Construct full redirect URL
     const redirectUrl = `http://portal.pieter.com/?${params.toString()}`;
+    console.log("Redirecting to portal with URL:", redirectUrl);
     
     // Add a portal transition effect
     const transitionOverlay = document.createElement('div');
@@ -3465,6 +3476,7 @@ function checkCollisions() {
                 
                 // Redirect after animation completes
                 setTimeout(() => {
+                    console.log("Redirecting to:", game.returnPortal.url);
                     window.location.href = game.returnPortal.url;
                 }, 600);
             }, 10);
