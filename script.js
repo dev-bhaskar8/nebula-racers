@@ -3053,7 +3053,7 @@ function handleTouchMove(event) {
     // If this is a double-tap boost, we still want turning but not regular indicator updates
     if (game.touchControls.isDoubleTapped) {
         const screenWidth = window.innerWidth;
-        const moveThreshold = screenWidth * 0.05; // 5% of screen width
+        const moveThreshold = screenWidth * 0.15; // Increased to 15% of screen width for more drag distance
         const xDiff = game.touchControls.currentX - game.touchControls.startX;
         
         // Reset turning keys first
@@ -3074,7 +3074,7 @@ function handleTouchMove(event) {
     
     // Regular movement handling
     const screenWidth = window.innerWidth;
-    const moveThreshold = screenWidth * 0.05; // 5% of screen width
+    const moveThreshold = screenWidth * 0.15; // Increased to 15% of screen width for more drag distance
     const xDiff = game.touchControls.currentX - game.touchControls.startX;
     
     // Reset turning keys first
