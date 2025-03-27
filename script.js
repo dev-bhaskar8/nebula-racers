@@ -94,18 +94,7 @@ function init() {
     // Check if player is coming from a portal
     const urlParams = new URLSearchParams(window.location.search);
     game.comingFromPortal = urlParams.get('portal') === 'true';
-    
-    // Get and properly decode the referrer URL
-    const refParam = urlParams.get('ref') || '';
-    try {
-        // Double decode to handle cases where the URL might be encoded twice
-        game.referrerUrl = decodeURIComponent(decodeURIComponent(refParam));
-        console.log("Referrer URL set to:", game.referrerUrl);
-    } catch (e) {
-        // Fallback in case of malformed URI
-        game.referrerUrl = refParam;
-        console.log("Using fallback referrer URL:", game.referrerUrl);
-    }
+    game.referrerUrl = urlParams.get('ref') || '';
     
     // Get player info from URL if coming from portal
     if (game.comingFromPortal) {
@@ -3291,12 +3280,12 @@ function createPortalLabel(portalGroup, text) {
 
 // Create return portal for players coming from another game
 function createReturnPortal(trackRadius, referrerUrl) {
-    // Position the return portal next to the main portal instead of opposite
+    // Position the return portal NEXT to the main portal (slightly offset) - not opposite
     const portalDistance = trackRadius * 2.0;
-    const portalAngle = Math.PI / 4 + Math.PI / 12; // Slightly offset from main portal (45 degrees + 15 degrees)
+    const portalAngle = Math.PI / 4 + 0.3; // Next to main portal (which is at Math.PI/4)
     const portalX = Math.cos(portalAngle) * portalDistance;
     const portalZ = Math.sin(portalAngle) * portalDistance;
-    const portalY = 1; // Lowered to player level
+    const portalY = 1; // Lowered to player level (was 5)
     
     // Create portal group
     const portalGroup = new THREE.Group();
@@ -3315,6 +3304,7 @@ function createReturnPortal(trackRadius, referrerUrl) {
         roughness: 0.3
     });
     const ring = new THREE.Mesh(ringGeometry, ringMaterial);
+    // No need to rotate the ring, as the parent group handles orientation
     portalGroup.add(ring);
     
     const diskGeometry = new THREE.CircleGeometry(4.5, 32);
@@ -3325,6 +3315,7 @@ function createReturnPortal(trackRadius, referrerUrl) {
         side: THREE.DoubleSide
     });
     const disk = new THREE.Mesh(diskGeometry, diskMaterial);
+    // No need to rotate the disk, as the parent group handles orientation
     portalGroup.add(disk);
     
     // Add portal particles
@@ -3355,8 +3346,12 @@ function createReturnPortal(trackRadius, referrerUrl) {
     const particles = new THREE.Points(particleGeometry, particleMaterial);
     portalGroup.add(particles);
     
-    // Add return portal label
-    createPortalLabel(portalGroup, "Return Portal");
+    // Add return portal label with the name of the original game if available
+    const portalLabel = referrerUrl.includes("://") ? 
+        new URL(referrerUrl).hostname.replace("www.", "") : 
+        "Return Portal";
+    
+    createPortalLabel(portalGroup, `Return to ${portalLabel}`);
     
     // Store references
     game.returnPortal = {
@@ -3364,7 +3359,7 @@ function createReturnPortal(trackRadius, referrerUrl) {
         ring: ring,
         disk: disk,
         particles: particles,
-        url: decodeURIComponent(referrerUrl) // Ensure URL is properly decoded
+        url: referrerUrl
     };
     
     // Add to scene
@@ -3387,12 +3382,10 @@ function redirectToVibeVersePortal() {
     params.append('username', username);
     params.append('color', color);
     params.append('speed', speed);
-    params.append('portal', 'true'); // Add portal flag
-    params.append('ref', encodeURIComponent(refUrl)); // Ensure proper encoding of the referrer URL
+    params.append('ref', refUrl);
     
     // Construct full redirect URL
     const redirectUrl = `http://portal.pieter.com/?${params.toString()}`;
-    console.log("Redirecting to portal with URL:", redirectUrl);
     
     // Add a portal transition effect
     const transitionOverlay = document.createElement('div');
@@ -3474,10 +3467,22 @@ function checkCollisions() {
             setTimeout(() => {
                 transitionOverlay.style.opacity = '1';
                 
+                // Get all current portal parameters to preserve them
+                const username = game.playerName || 'Player';
+                const color = game.shipColor.startsWith('#') ? game.shipColor : '#' + game.shipColor;
+                const speed = game.speed.toFixed(1);
+                
+                // Check if the URL already has parameters
+                let redirectUrl = game.returnPortal.url;
+                const hasParams = redirectUrl.includes('?');
+                const connector = hasParams ? '&' : '?';
+                
+                // Append portal=true to indicate this is a portal entrance
+                redirectUrl += `${connector}portal=true&username=${encodeURIComponent(username)}&color=${encodeURIComponent(color)}&speed=${encodeURIComponent(speed)}`;
+                
                 // Redirect after animation completes
                 setTimeout(() => {
-                    console.log("Redirecting to:", game.returnPortal.url);
-                    window.location.href = game.returnPortal.url;
+                    window.location.href = redirectUrl;
                 }, 600);
             }, 10);
             
