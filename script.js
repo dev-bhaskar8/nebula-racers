@@ -3134,8 +3134,8 @@ function createRedPlanet(trackRadius) {
 
 // Create Vibeverse portal
 function createVibeVersePortal(trackRadius) {
-    // Position the portal outside the track - increased to 3.0 times the track radius
-    const portalDistance = trackRadius * 3.0;
+    // Position the portal outside the track - set to 2.0 times the track radius
+    const portalDistance = trackRadius * 2.0;
     const portalAngle = Math.PI / 4; // 45 degrees position
     const portalX = Math.cos(portalAngle) * portalDistance;
     const portalZ = Math.sin(portalAngle) * portalDistance;
@@ -3248,8 +3248,8 @@ function createPortalLabel(portalGroup, text) {
 
 // Create return portal for players coming from another game
 function createReturnPortal(trackRadius, referrerUrl) {
-    // Position the return portal opposite to the main portal - increased to 3.0 times the track radius
-    const portalDistance = trackRadius * 3.0;
+    // Position the return portal opposite to the main portal - set to 2.0 times the track radius
+    const portalDistance = trackRadius * 2.0;
     const portalAngle = Math.PI * 5 / 4; // Opposite angle (225 degrees)
     const portalX = Math.cos(portalAngle) * portalDistance;
     const portalZ = Math.sin(portalAngle) * portalDistance;
