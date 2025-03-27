@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+  <!-- Background -->
+  <rect width="32" height="32" fill="#000011" rx="4" ry="4"/>
+  
+  <!-- Spaceship/rocket -->
+  <path d="M16,5 L24,22 L16,18 L8,22 Z" fill="#4fd1c5"/>
+  
+  <!-- Glow effect -->
+  <circle cx="16" cy="16" r="7" fill="rgba(79, 209, 197, 0.2)"/>
+  
+  <!-- Thruster -->
+  <path d="M14,22 L18,22 L16,28 Z" fill="#ffffff"/>
+</svg> 
