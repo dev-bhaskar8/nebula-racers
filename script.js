@@ -94,12 +94,43 @@ function init() {
     // Check if player is coming from a portal
     const urlParams = new URLSearchParams(window.location.search);
     game.comingFromPortal = urlParams.get('portal') === 'true';
-    game.referrerUrl = urlParams.get('ref') || '';
+    
+    // Get and properly decode referrer URL - check for multiple ref params
+    let referrerUrl = '';
+    // Get all entries to handle duplicate parameters
+    const entries = urlParams.entries();
+    for (const [key, value] of entries) {
+        if (key === 'ref' && value) {
+            referrerUrl = value; // Use the last ref parameter if multiple exist
+        }
+    }
+    
+    // Fix any double-encoded URLs by decoding once
+    if (referrerUrl.includes('%')) {
+        try {
+            referrerUrl = decodeURIComponent(referrerUrl);
+        } catch(e) {
+            console.error("Error decoding referrer URL:", e);
+        }
+    }
+    
+    // Ensure the URL has a protocol
+    if (referrerUrl && !referrerUrl.startsWith('http')) {
+        referrerUrl = 'http://' + referrerUrl;
+    }
+    
+    console.log("Referrer URL:", referrerUrl);
+    game.referrerUrl = referrerUrl;
     
     // Get player info from URL if coming from portal
     if (game.comingFromPortal) {
         const username = urlParams.get('username') || 'Player';
-        const color = urlParams.get('color') || '#4fd1c5';
+        let color = urlParams.get('color') || '#4fd1c5';
+        
+        // If color doesn't start with #, it might be a hex color without the #
+        if (color && !color.startsWith('#') && color.match(/^[0-9a-fA-F]{6}$/)) {
+            color = '#' + color;
+        }
         
         // Pre-fill player name and color
         document.getElementById('player-name').value = username;
@@ -3255,31 +3286,64 @@ function createVibeVersePortal(trackRadius) {
 
 // Create portal text label
 function createPortalLabel(portalGroup, text) {
-    // Create canvas for text
+    // Create canvas for the text
     const canvas = document.createElement('canvas');
     const context = canvas.getContext('2d');
-    canvas.width = 256;
-    canvas.height = 64;
+    canvas.width = 512; // Increased from smaller size
+    canvas.height = 256; // Increased height
     
-    // Draw text
-    context.fillStyle = '#00ff88';
-    context.font = 'bold 32px Arial';
+    // Set text properties
+    context.font = 'Bold 48px Arial'; // Larger font
+    context.fillStyle = 'white';
     context.textAlign = 'center';
     context.textBaseline = 'middle';
-    context.fillText(text, 128, 32);
     
-    // Create texture and sprite
+    // Draw text with shadow for better visibility
+    context.shadowColor = 'rgba(0,0,0,0.8)';
+    context.shadowBlur = 8;
+    context.shadowOffsetX = 2;
+    context.shadowOffsetY = 2;
+    context.fillText(text, canvas.width / 2, canvas.height / 2);
+    
+    // Create texture from canvas
     const texture = new THREE.CanvasTexture(canvas);
-    const material = new THREE.SpriteMaterial({ map: texture });
-    const sprite = new THREE.Sprite(material);
-    sprite.scale.set(10, 2.5, 1);
-    sprite.position.set(0, 6, 0); // Adjusted position (was 8)
     
+    // Create sprite material
+    const material = new THREE.SpriteMaterial({
+        map: texture,
+        transparent: true
+    });
+    
+    // Create sprite
+    const sprite = new THREE.Sprite(material);
+    sprite.position.y = 10; // Position above portal
+    sprite.scale.set(10, 5, 1); // Increased scale to match new canvas dimensions
+    
+    // Add to portal group
     portalGroup.add(sprite);
+}
+
+// Helper function to safely decode a URL that might be double-encoded
+function safeDecodeURL(url) {
+    if (!url) return url;
+    
+    // Detect if URL contains encoded percent signs (indicates double encoding)
+    if (url.includes('%25')) {
+        try {
+            return decodeURIComponent(url);
+        } catch(e) {
+            console.error("Error decoding URL:", e);
+            return url;
+        }
+    }
+    return url;
 }
 
 // Create return portal for players coming from another game
 function createReturnPortal(trackRadius, referrerUrl) {
+    // Make sure the referrer URL is properly decoded
+    referrerUrl = safeDecodeURL(referrerUrl);
+    
     // Position the return portal NEXT to the main portal (slightly offset) - not opposite
     const portalDistance = trackRadius * 2.0;
     const portalAngle = Math.PI / 4 + 0.3; // Next to main portal (which is at Math.PI/4)
@@ -3347,11 +3411,30 @@ function createReturnPortal(trackRadius, referrerUrl) {
     portalGroup.add(particles);
     
     // Add return portal label with the name of the original game if available
-    const portalLabel = referrerUrl.includes("://") ? 
-        new URL(referrerUrl).hostname.replace("www.", "") : 
-        "Return Portal";
+    let portalLabel = "Return Portal";
+    try {
+        if (referrerUrl.includes("://")) {
+            const url = new URL(referrerUrl);
+            let hostname = url.hostname.replace("www.", "");
+            
+            // Check for cloudflare temporary URLs
+            if (hostname.includes("trycloudflare.com")) {
+                const subdomain = hostname.split('.')[0];
+                portalLabel = `Return`;
+            } else if (hostname.includes("localhost")) {
+                // For localhost, just show Return
+                portalLabel = `Return`;
+            } else {
+                // Truncate domain if too long (more than 12 chars)
+                hostname = hostname.length > 12 ? hostname.substring(0, 10) + "..." : hostname;
+                portalLabel = `Return to ${hostname}`;
+            }
+        }
+    } catch (e) {
+        console.error("Error parsing referrer URL:", e);
+    }
     
-    createPortalLabel(portalGroup, `Return to ${portalLabel}`);
+    createPortalLabel(portalGroup, portalLabel);
     
     // Store references
     game.returnPortal = {
@@ -3371,21 +3454,22 @@ function createReturnPortal(trackRadius, referrerUrl) {
 
 // Redirect player to Vibeverse portal
 function redirectToVibeVersePortal() {
-    // Construct URL parameters
+    // Get player info
     const username = game.playerName || 'Player';
     const color = game.shipColor.startsWith('#') ? game.shipColor : '#' + game.shipColor;
     const speed = game.speed.toFixed(1);
-    const refUrl = window.location.href.split('?')[0]; // Remove existing query params
     
-    // Encode URL parameters
-    const params = new URLSearchParams();
-    params.append('username', username);
-    params.append('color', color);
-    params.append('speed', speed);
-    params.append('ref', refUrl);
+    // Get current URL without any query parameters
+    const refUrl = window.location.origin + window.location.pathname;
     
-    // Construct full redirect URL
-    const redirectUrl = `http://portal.pieter.com/?${params.toString()}`;
+    // Build redirect URL carefully
+    let redirectUrl = 'http://portal.pieter.com/?';
+    redirectUrl += `username=${encodeURIComponent(username)}`;
+    redirectUrl += `&color=${encodeURIComponent(color)}`;
+    redirectUrl += `&speed=${encodeURIComponent(speed)}`;
+    redirectUrl += `&ref=${encodeURIComponent(refUrl)}`;
+    
+    console.log("Redirecting to Vibeverse:", redirectUrl);
     
     // Add a portal transition effect
     const transitionOverlay = document.createElement('div');
@@ -3472,13 +3556,35 @@ function checkCollisions() {
                 const color = game.shipColor.startsWith('#') ? game.shipColor : '#' + game.shipColor;
                 const speed = game.speed.toFixed(1);
                 
-                // Check if the URL already has parameters
-                let redirectUrl = game.returnPortal.url;
-                const hasParams = redirectUrl.includes('?');
-                const connector = hasParams ? '&' : '?';
+                // Use our helper to ensure URL is properly decoded
+                let redirectUrl = safeDecodeURL(game.returnPortal.url);
                 
-                // Append portal=true to indicate this is a portal entrance
-                redirectUrl += `${connector}portal=true&username=${encodeURIComponent(username)}&color=${encodeURIComponent(color)}&speed=${encodeURIComponent(speed)}`;
+                // Make sure the URL is valid with proper protocol
+                if (!redirectUrl.startsWith('http')) {
+                    redirectUrl = 'http://' + redirectUrl;
+                }
+                
+                // Parse the URL to handle parameters properly
+                try {
+                    const urlObj = new URL(redirectUrl);
+                    
+                    // Add our parameters without duplicating
+                    urlObj.searchParams.set('portal', 'true');
+                    urlObj.searchParams.set('username', username);
+                    urlObj.searchParams.set('color', color);
+                    urlObj.searchParams.set('speed', speed);
+                    
+                    // Use the properly formatted URL
+                    redirectUrl = urlObj.toString();
+                } catch (e) {
+                    console.error("Error parsing redirect URL:", e);
+                    // Fallback to simple parameter addition
+                    const hasParams = redirectUrl.includes('?');
+                    const connector = hasParams ? '&' : '?';
+                    redirectUrl += `${connector}portal=true&username=${username}&color=${color}&speed=${speed}`;
+                }
+                
+                console.log("Redirecting back to:", redirectUrl);
                 
                 // Redirect after animation completes
                 setTimeout(() => {
