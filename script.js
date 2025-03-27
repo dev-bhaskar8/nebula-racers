@@ -719,6 +719,16 @@ function positionShipAtStart() {
     game.speed = 0;
     game.boostAmount = 100;
     
+    // Ensure boost effect is properly created
+    if (game.boostEffectGroup) {
+        game.ship.remove(game.boostEffectGroup);
+        game.boostEffectGroup = null;
+        game.boostParticles = null;
+    }
+    
+    // Create a new boost effect for the new race
+    createBoostEffect();
+    
     // Initialize lap tracking
     game.lap = 0;
     game.trackProgress = 0;
@@ -1019,6 +1029,21 @@ function restartRace() {
     // Remove AI players
     for (const id in game.players) {
         game.scene.remove(game.players[id].mesh);
+    }
+    
+    // Reset planet rotation if it exists
+    if (game.planet) {
+        game.scene.remove(game.planet);
+        game.planet = null; // This will force it to be recreated
+    }
+    
+    // Reset boost particles
+    if (game.boostParticles && game.boostParticles.userData) {
+        game.boostParticles.userData.time = 0;
+    }
+    
+    if (game.boostEffectGroup) {
+        game.boostEffectGroup.visible = false;
     }
     
     // Clear arrays and objects
@@ -2543,7 +2568,14 @@ function resetRaceToStart() {
     // Update HUD
     updateHUD();
     
-    // Position ship at starting line
+    // Clear and recreate boost effect
+    if (game.ship && game.boostEffectGroup) {
+        game.ship.remove(game.boostEffectGroup);
+        game.boostEffectGroup = null;
+        game.boostParticles = null;
+    }
+    
+    // Position ship at starting line - this will recreate boost effect
     positionShipAtStart();
     
     // Reset AI players to starting line
